@@ -12,8 +12,8 @@ function greetingFor(hour, name, streak) {
   if (hour < 5) return `The world's asleep, ${name}. Legends aren't.`
   if (hour < 10) return `Suit up, ${name}. The day won't win itself.`
   if (hour < 13) return `Morning: conquered. Momentum: building.`
-  if (hour < 17) return streak > 0 ? `${streak} days deep. You're on a heater.` : `Power levels rising, ${name}.`
-  if (hour < 21) return `Bring it home, boss.`
+  if (hour < 17) return streak > 0 ? `${streak} days deep. You're on a heater.` : `You're building, ${name}. Keep stacking.`
+  if (hour < 21) return `Bring it home, ${name}.`
   return `Systems check — how was the becoming?`
 }
 
@@ -72,7 +72,7 @@ export default function Dashboard({ state, colors, onCheckIn, onToggleTask, setP
         </Animated.View>
         <Pressable onPress={() => setShowSlider(!showSlider)}>
           <Text style={{ color: colors.inkFaint, fontSize: 13, fontWeight: '600' }}>
-            Jarvis: {state.user.jarvisPersonality} ▾
+            Coach: {state.user.jarvisPersonality} ▾
           </Text>
         </Pressable>
       </Animated.View>

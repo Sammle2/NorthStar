@@ -11,7 +11,7 @@ export default function Settings({ state, colors, setPersonality, setThemeMode, 
       <H1 colors={colors}>Settings</H1>
 
       <Card colors={colors} style={{ marginTop: 18 }}>
-        <Kicker colors={colors}>Jarvis tone</Kicker>
+        <Kicker colors={colors}>Coach tone</Kicker>
         <PersonalitySlider value={state.user.jarvisPersonality} onChange={setPersonality} colors={colors} />
         <Text style={{ color: colors.inkFaint, fontSize: 12.5, marginTop: 10, lineHeight: 18 }}>
           Loving softens the edges. Tough names the gap. Balanced is the advisor in the room.
@@ -35,7 +35,7 @@ export default function Settings({ state, colors, setPersonality, setThemeMode, 
       <Card colors={colors} style={{ marginTop: 14 }}>
         <Kicker colors={colors}>Notifications</Kicker>
         <Text style={{ color: colors.inkDim, fontSize: 13.5, lineHeight: 20 }}>
-          Morning nudge, afternoon progress check, evening reflection — Jarvis delivers these in-app
+          Morning nudge, afternoon progress check, evening reflection — Coach delivers these in-app
           today. Push notifications arrive with the device build (expo-notifications).
         </Text>
       </Card>

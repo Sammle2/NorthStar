@@ -106,7 +106,7 @@ export default function Weekly({ state, colors }) {
       </Card>
 
       <Card colors={colors} style={{ marginTop: 14 }}>
-        <Kicker colors={colors}>Jarvis — weekly summary</Kicker>
+        <Kicker colors={colors}>Coach — weekly summary</Kicker>
         {summary === null ? (
           <ActivityIndicator color={colors.glow} />
         ) : (

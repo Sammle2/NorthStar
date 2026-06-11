@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import JarvisOrb from './src/components/JarvisOrb'
+import Stars from './src/components/Stars'
 import { StatusBar } from 'expo-status-bar'
 import { LinearGradient } from 'expo-linear-gradient'
 import { palettes } from './src/theme'
@@ -180,6 +181,7 @@ export default function App() {
 
   return (
     <LinearGradient colors={colors.bgGrad} style={styles.fill}>
+      {state.user.themeMode === 'dark' && <Stars />}
       <StatusBar style={state.user.themeMode === 'dark' ? 'light' : 'dark'} />
 
       {phase === 'intake' && <Intake colors={colors} onComplete={finishIntake} />}

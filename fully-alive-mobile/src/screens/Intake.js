@@ -163,7 +163,7 @@ export default function Intake({ colors, onComplete }) {
       <View style={styles.center}>
         <JarvisOrb size={120} />
         <Text style={{ color: colors.inkDim, fontSize: 15, marginTop: 8 }}>
-          Jarvis is architecting your path…
+          Coach is charting your path…
         </Text>
         <ActivityIndicator color={colors.glow} style={{ marginTop: 16 }} />
       </View>

@@ -43,7 +43,7 @@ export default function CheckIn({ state, colors, onClose, onAppendChat }) {
       style={[styles.fill, { backgroundColor: colors.bg }]}
     >
       <View style={styles.header}>
-        <Kicker colors={colors}>Check-in with Jarvis</Kicker>
+        <Kicker colors={colors}>Check-in with Coach</Kicker>
         <Pressable onPress={onClose}>
           <Text style={{ color: colors.inkDim, fontSize: 22, lineHeight: 22 }}>×</Text>
         </Pressable>

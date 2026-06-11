@@ -2,7 +2,7 @@ import { Platform } from 'react-native'
 import { dateKey } from './storage'
 import { topStreak, weekContext } from './logic'
 
-// On web the Jarvis server is same-machine; on device, set your Mac's LAN IP.
+// On web the Coach server is same-machine; on device, set your Mac's LAN IP.
 const HOST = Platform.OS === 'web' ? 'http://localhost:8787' : 'http://192.168.1.100:8787'
 
 export function buildContext(state) {
@@ -77,7 +77,7 @@ export async function weekly(state) {
     })
     return data.reply
   } catch {
-    return 'I couldn’t reach the Jarvis server. Start it with `npm run server` inside fully-alive/ and I’ll write your weekly summary.'
+    return 'I couldn’t reach the Coach server. Start it with `npm run server` inside fully-alive/ and I’ll write your weekly summary.'
   }
 }
 
