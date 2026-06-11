@@ -12,7 +12,10 @@ function greetingFor(hour, name, streak) {
   if (hour < 5) return `The world's asleep, ${name}. Legends aren't.`
   if (hour < 10) return `Suit up, ${name}. The day won't win itself.`
   if (hour < 13) return `Morning: conquered. Momentum: building.`
-  if (hour < 17) return streak > 0 ? `${streak} days deep. You're on a heater.` : `You're building, ${name}. Keep stacking.`
+  if (hour < 17)
+    return streak > 0
+      ? `${streak} day${streak === 1 ? '' : 's'} deep. You're on a heater.`
+      : `You're building, ${name}. Keep stacking.`
   if (hour < 21) return `Bring it home, ${name}.`
   return `Systems check — how was the becoming?`
 }
