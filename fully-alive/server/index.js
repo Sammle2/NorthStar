@@ -102,8 +102,9 @@ async function llm(systemText, messages, maxTokens = 600) {
             .map((p) => p.text || '')
             .join('')
             .trim()
-            // the app renders plain text — strip Gemini's markdown emphasis
+            // the app renders plain text — strip Gemini's markdown emphasis and headers
             .replace(/\*{1,2}([^*\n]+)\*{1,2}/g, '$1')
+            .replace(/^#{1,4}\s*/gm, '')
           if (text) return text
           throw new Error(`${model}: empty response`)
         } catch (e) {

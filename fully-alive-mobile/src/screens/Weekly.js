@@ -40,30 +40,69 @@ export default function Weekly({ state, colors }) {
         </Card>
       </View>
 
+      {/* The Roadmap — a glowing journey from here to the dream (from the Figma mockup) */}
       <Card colors={colors} style={{ marginTop: 14 }}>
-        <Kicker colors={colors}>Goals on the path</Kicker>
-        {state.dreams.flatMap((d) =>
-          d.goals
-            .filter((g) => g.accepted)
-            .map((g) => {
-              const pct = goalPct(state, g)
-              return (
-                <View key={g.id} style={{ marginBottom: 12 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.ink, fontSize: 13.5, fontWeight: '600', flex: 1 }} numberOfLines={1}>
-                      {g.title}
-                    </Text>
-                    <Text style={{ color: pct >= 100 ? colors.success : colors.cyan, fontSize: 12.5, fontWeight: '800' }}>
-                      {pct.toFixed(0)}%
-                    </Text>
-                  </View>
-                  <View style={{ height: 5, borderRadius: 99, backgroundColor: 'rgba(120,160,255,0.12)', marginTop: 5, overflow: 'hidden' }}>
-                    <View style={{ width: `${pct}%`, height: '100%', borderRadius: 99, backgroundColor: pct >= 100 ? colors.success : catColor(d.category) }} />
-                  </View>
+        <Kicker colors={colors}>The road ahead</Kicker>
+        {state.dreams.map((d, di) => {
+          const goals = d.goals.filter((g) => g.accepted)
+          if (!goals.length) return null
+          const dreamPct = goals.reduce((s, g) => s + goalPct(state, g), 0) / goals.length
+          return (
+            <View key={d.id} style={{ flexDirection: 'row', marginTop: di > 0 ? 18 : 0 }}>
+              {/* glowing rail */}
+              <View style={{ width: 22, alignItems: 'center' }}>
+                <View
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 7,
+                    backgroundColor: dreamPct >= 100 ? colors.success : catColor(d.category),
+                    shadowColor: catColor(d.category),
+                    shadowOpacity: 0.9,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 0 },
+                  }}
+                />
+                <View style={{ flex: 1, width: 2, backgroundColor: 'rgba(120,160,255,0.18)', marginTop: 4 }} />
+              </View>
+              <View style={{ flex: 1, paddingBottom: 6 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.ink, fontWeight: '800', fontSize: 15.5, flex: 1 }} numberOfLines={1}>
+                    {d.title}
+                  </Text>
+                  <Text style={{ color: colors.cyan, fontWeight: '800', fontSize: 12.5 }}>
+                    {dreamPct.toFixed(0)}%
+                  </Text>
                 </View>
-              )
-            }),
-        )}
+                {goals.map((g) => {
+                  const pct = goalPct(state, g)
+                  return (
+                    <View key={g.id} style={{ marginTop: 10 }}>
+                      <Text style={{ color: pct >= 100 ? colors.success : colors.inkDim, fontSize: 13 }} numberOfLines={1}>
+                        {pct >= 100 ? '✦ ' : ''}{g.title}
+                      </Text>
+                      {/* GlowProgress */}
+                      <View style={{ height: 6, borderRadius: 99, backgroundColor: 'rgba(120,160,255,0.12)', marginTop: 5, overflow: 'visible' }}>
+                        <View
+                          style={{
+                            width: `${Math.max(pct, 2)}%`,
+                            height: '100%',
+                            borderRadius: 99,
+                            backgroundColor: pct >= 100 ? colors.success : catColor(d.category),
+                            shadowColor: pct >= 100 ? colors.success : catColor(d.category),
+                            shadowOpacity: 0.8,
+                            shadowRadius: 8,
+                            shadowOffset: { width: 0, height: 0 },
+                          }}
+                        />
+                      </View>
+                    </View>
+                  )
+                })}
+              </View>
+            </View>
+          )
+        })}
       </Card>
 
       <Card colors={colors} style={{ marginTop: 14 }}>
