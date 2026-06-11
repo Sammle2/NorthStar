@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fully-alive",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "/Users/sammypetersen/jarvis/fully-alive",
+      "port": 5180
+    }
+  ]
+}

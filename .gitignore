@@ -1,0 +1,16 @@
+# Only the Road Map app folders are tracked — the n8n stack stays local.
+/*
+!/fully-alive/
+!/fully-alive-mobile/
+!/.gitignore
+!/README.md
+
+# never commit these, anywhere
+node_modules/
+.env
+.env.*
+!.env.example
+.expo/
+dist/
+.DS_Store
+/.env.example
