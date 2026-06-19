@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "NorthStar",
+    "slug": "northstar",
+    "scheme": "northstar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.northstar"
+    },
+    "android": {
+      "package": "app.northstar",
+      "adaptiveIcon": {
+        "backgroundColor": "#07070f",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-web-browser",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "backgroundColor": "#07070f"
+        }
+      ]
+    ]
+  }
+}
