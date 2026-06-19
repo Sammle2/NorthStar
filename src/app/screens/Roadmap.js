@@ -85,9 +85,36 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   // The current milestone — the first one you haven't reached yet — gets the glow.
   const currentMsId = goal ? (goal.milestones.find((m) => !m.completed) || {}).id : null
 
+  // Sequential progression: stepping stones must be completed in order, across the
+  // whole goal. The "frontier" is the first stone you haven't done yet — you can
+  // complete that one (or uncheck the last one you did); everything ahead is locked
+  // so you can't click past the milestone you're on.
+  const flatSteps = useMemo(() => {
+    const arr = []
+    ;(goal?.milestones || []).forEach((m) => (m.steps || []).forEach((s) => arr.push({ key: `${m.id}:${s.id}`, done: !!s.completed })))
+    return arr
+  }, [goal, profile])
+  const frontier = useMemo(() => {
+    const i = flatSteps.findIndex((s) => !s.done)
+    return i === -1 ? flatSteps.length : i
+  }, [flatSteps])
+  // 'done' = completed & locked, 'last' = last completed (can undo), 'current' =
+  // next one to do, 'locked' = ahead of the frontier (not yet reachable).
+  const stepStatusOf = (mId, sId) => {
+    const idx = flatSteps.findIndex((s) => s.key === `${mId}:${sId}`)
+    if (idx < 0) return 'locked'
+    if (idx === frontier) return 'current'
+    if (idx === frontier - 1) return 'last'
+    if (idx < frontier) return 'done'
+    return 'locked'
+  }
 
   const toggleStep = (milestoneId, stepId) => {
     if (!goal) return
+    // Only the active edge is interactive — the next stone to do, or the last one
+    // done (to undo). Anything else is locked, enforcing one-before-the-other.
+    const status = stepStatusOf(milestoneId, stepId)
+    if (status !== 'current' && status !== 'last') return
     const updatedGoal = recomputeGoal({
       ...goal,
       milestones: goal.milestones.map((m) =>
@@ -202,17 +229,29 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
               const node = nodes[i]
               if (node.type === 'step') {
                 const lit = node.step.completed
+                const status = stepStatusOf(node.milestone.id, node.step.id)
+                const locked = status === 'locked'
+                const current = status === 'current'
                 return (
-                  <Pressable key={node.milestone.id + node.step.id} onPress={() => toggleStep(node.milestone.id, node.step.id)} style={[styles.marker, { top: p.y - 11, left: p.x - 11 }]}>
+                  <Pressable
+                    key={node.milestone.id + node.step.id}
+                    onPress={locked ? undefined : () => toggleStep(node.milestone.id, node.step.id)}
+                    disabled={locked}
+                    style={[styles.marker, { top: p.y - 11, left: p.x - 11 }, locked && { opacity: 0.4 }]}
+                  >
                     <View
                       style={[
                         styles.stepNode,
                         lit
                           ? { backgroundColor: accent, borderColor: accent, shadowColor: accent, shadowOpacity: 0.9, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } }
-                          : { backgroundColor: C.bg, borderColor: C.lineStrong },
+                          : current
+                            ? { backgroundColor: C.bg, borderColor: accent, shadowColor: accent, shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }
+                            : { backgroundColor: C.bg, borderColor: C.lineStrong },
                       ]}
                     />
-                    <Text style={[styles.stepLabel, { color: lit ? C.ink2 : C.faint }]}>{node.step.title}</Text>
+                    <Text style={[styles.stepLabel, { color: lit ? C.ink2 : current ? accent : C.faint }]} numberOfLines={2}>
+                      {locked ? '🔒 ' : ''}{node.step.title}
+                    </Text>
                   </Pressable>
                 )
               }

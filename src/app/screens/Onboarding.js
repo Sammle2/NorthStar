@@ -23,9 +23,10 @@ import {
   capName,
   generateDreamStory,
   generateGoals,
+  normalizeAiGoal,
   validateGoal,
 } from '../aiEngine'
-import { generateDreamLifeStory } from '../../services/aiService'
+import { generateDreamLifeStory, generateRoadmap } from '../../services/aiService'
 
 const TONES = [
   { id: 'tough', label: 'Tough Love', desc: 'No BS, high expectations', emoji: '💪' },
@@ -136,6 +137,19 @@ export default function Onboarding({ onComplete }) {
       }
       if (!dreamStory) dreamStory = generateDreamStory({ name, age, answers, goalTitle, extra })
 
+      // Local roadmap is the baseline AND the fallback. When Claude is reachable,
+      // upgrade the PRIMARY goal to a roadmap generated from the user's own words —
+      // specific, actionable milestones + stepping stones. Supporting goals (from
+      // the survey) stay local; drop any that duplicate the AI goal's category.
+      let goals = generateGoals(goal, answers, extra)
+      try {
+        const ai = await generateRoadmap({ name, rawGoal: goal, extra, tone })
+        const aiPrimary = normalizeAiGoal(ai, goal, extra, 'goal-primary')
+        goals = [aiPrimary, ...goals.slice(1).filter((g) => g.category !== aiPrimary.category)]
+      } catch (e) {
+        console.warn('[Onboarding] AI roadmap failed, using local roadmap:', e?.message)
+      }
+
       const profile = {
         name,
         age,
@@ -147,7 +161,7 @@ export default function Onboarding({ onComplete }) {
         dreamDescription: extra,
         primaryGoalRaw: goal,
         dreamStory,
-        goals: generateGoals(goal, answers, extra),
+        goals,
         nonNeg: {},
         sprints: [],
         streak: 0,
