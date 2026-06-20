@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Send } from 'lucide-react-native'
+import { ChevronLeft, Send } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import GlowProgress from '../components/GlowProgress'
@@ -39,7 +39,7 @@ const nid = () => `m${Date.now()}_${idc++}`
 
 // Screen 2 — the Coach's first conversation: intake form → 8-question dream
 // survey → free-text add-ons → primary goal (validated) → tone → generate.
-export default function Onboarding({ onComplete }) {
+export default function Onboarding({ onComplete, onExit }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [step, setStep] = useState('intake') // intake | survey | extra | goal | tone | generating
@@ -175,6 +175,24 @@ export default function Onboarding({ onComplete }) {
             borderBottomColor: 'rgba(167,139,250,0.1)',
           }}
         >
+          {onExit && (
+            <Pressable
+              onPress={onExit}
+              hitSlop={10}
+              accessibilityLabel="Back to start"
+              style={({ pressed }) => ({
+                width: 34,
+                height: 34,
+                borderRadius: 17,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginLeft: -6,
+                backgroundColor: pressed ? 'rgba(167,139,250,0.15)' : 'transparent',
+              })}
+            >
+              <ChevronLeft size={22} color={C.dim} strokeWidth={2.2} />
+            </Pressable>
+          )}
           <CoachAvatar size={42} />
           <View>
             <Text style={{ fontFamily: F.display, fontSize: 13.5, color: C.ink, letterSpacing: 1.4 }}>COACH</Text>

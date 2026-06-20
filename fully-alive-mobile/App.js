@@ -191,22 +191,24 @@ export default function App() {
       .then((s) => {
         setAppState(s)
 
-        // Flow: welcome → signin/signup → onboarding → dream → app
+        // Entry-screen rule: the ONLY thing that decides where we land is whether
+        // there's a real roadmap yet.
+        //   • recovery link    → reset-password
+        //   • has dream/goals  → app   (returning, onboarded user)
+        //   • everything else  → welcome
+        // "Everything else" includes a signed-in user whose onboarding never
+        // finished. We deliberately never cold-boot into the nav-less Onboarding
+        // screen: a half-finished start used to strand the user there with no way
+        // back to Welcome. Now they always land on Welcome and resume via "Begin
+        // Your Journey" (handleBegin reuses their existing silent account — no new
+        // account is minted).
+        const onboarded = !!s.profile && (s.profile.dreamDescription || (s.profile.goals || []).length)
         if (isRecoveryLink) {
           setScreen('reset-password')
-        } else if (!s.profile) {
-          setScreen('welcome')
-        } else if (!s.profile.userId && !s.profile.email) {
-          // Profile exists but not linked to auth — need to sign in
-          setScreen('auth')
-        } else if (s.profile.dreamDescription || (s.profile.goals || []).length) {
-          // Returning, onboarded user: straight to the app. The dream reveal is a
-          // one-time onboarding step, never replayed — so we never strand them on
-          // that nav-less screen again.
+        } else if (onboarded) {
           setScreen('app')
         } else {
-          // Signed in but onboarding unfinished — resume it.
-          setScreen('onboarding')
+          setScreen('welcome')
         }
 
         setBooted(true)
@@ -386,7 +388,13 @@ export default function App() {
   }
 
   const handleOnboardingComplete = (profile) => {
-    persist({ profile, dreamRevealSeen: false })
+    // Onboarding builds a fresh profile object from the intake answers — it does
+    // NOT carry the auth linkage (userId/email/username/visibility) that handleBegin
+    // seeded. Merge onto the existing profile so the account link survives; otherwise
+    // the next cold boot sees a profile with no userId (can't cloud-sync, and used to
+    // bounce the user to the sign-in screen for an account they can't sign into).
+    const base = appStateRef.current?.profile || {}
+    persist({ ...appStateRef.current, profile: { ...base, ...profile }, dreamRevealSeen: false })
     setScreen('dream')
   }
 
@@ -441,7 +449,7 @@ export default function App() {
         />
       )}
 
-      {screen === 'onboarding' && <Onboarding onComplete={handleOnboardingComplete} />}
+      {screen === 'onboarding' && <Onboarding onComplete={handleOnboardingComplete} onExit={() => setScreen('welcome')} />}
       {screen === 'dream' && p && <DreamReveal profile={p} onContinue={handleDreamContinue} />}
 
       {screen === 'app' && p && (
