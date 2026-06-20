@@ -19,8 +19,8 @@ export default function PersonalitySlider({ value, onChange, colors }) {
 
   return (
     <View>
-      <View style={[styles.track, { backgroundColor: colors.electricSoft, borderColor: colors.line }]}>
-        <Animated.View style={[styles.thumb, { left, backgroundColor: colors.electric }]} />
+      <View style={[styles.track, { backgroundColor: colors.violetSoft, borderColor: colors.line }]}>
+        <Animated.View style={[styles.thumb, { left, backgroundColor: colors.violet }]} />
         {STOPS.map((s) => (
           <Pressable key={s.key} style={styles.stop} onPress={() => onChange(s.key)}>
             <Text

@@ -1,13 +1,44 @@
 import React, { useEffect, useState } from 'react'
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Card, H1, Kicker } from '../components/Ui'
 import DreamArt from '../components/DreamArt'
+import PathView from '../components/PathView'
 import { onePercent, weekContext, goalPct } from '../logic'
 import { catColor } from '../theme'
 import { weekly } from '../jarvis'
 
-// Weekly summary + the 1% Better engine + the dream-life story.
+// The Road Map tab: the Path (default) and the weekly Report behind a toggle.
 export default function Weekly({ state, colors }) {
+  const [mode, setMode] = useState('path')
+
+  const toggle = (
+    <View style={[styles.toggle, { borderColor: colors.lineStrong }]}>
+      {['path', 'report'].map((m) => (
+        <Pressable
+          key={m}
+          onPress={() => setMode(m)}
+          style={[styles.toggleBtn, mode === m && { backgroundColor: colors.primarySoft }]}
+        >
+          <Text style={{ color: mode === m ? colors.gold : colors.inkFaint, fontWeight: '800', fontSize: 12.5, letterSpacing: 0.6 }}>
+            {m === 'path' ? 'THE PATH' : 'REPORT'}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  )
+
+  if (mode === 'path')
+    return (
+      <View style={{ flex: 1, paddingTop: 16 }}>
+        <View style={{ paddingHorizontal: 22 }}>{toggle}</View>
+        <PathView state={state} colors={colors} />
+      </View>
+    )
+
+  return <Report state={state} colors={colors} toggle={toggle} />
+}
+
+function Report({ state, colors, toggle }) {
   const [summary, setSummary] = useState(null)
   const wk = weekContext(state)
   const op = onePercent(state)
@@ -22,6 +53,7 @@ export default function Weekly({ state, colors }) {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.pad}>
+      <View style={{ marginBottom: 14 }}>{toggle}</View>
       <Kicker colors={colors}>The long game</Kicker>
       <H1 colors={colors}>1% Better</H1>
 
@@ -70,7 +102,7 @@ export default function Weekly({ state, colors }) {
                   <Text style={{ color: colors.ink, fontWeight: '800', fontSize: 15.5, flex: 1 }} numberOfLines={1}>
                     {d.title}
                   </Text>
-                  <Text style={{ color: colors.cyan, fontWeight: '800', fontSize: 12.5 }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12.5 }}>
                     {dreamPct.toFixed(0)}%
                   </Text>
                 </View>
@@ -150,4 +182,6 @@ const styles = StyleSheet.create({
   lbl: { fontSize: 11, marginTop: 6, lineHeight: 15 },
   section: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4, marginTop: 24, marginBottom: 10 },
   dreamImg: { width: '100%', height: 220, borderRadius: 18 },
+  toggle: { flexDirection: 'row', borderWidth: 1, borderRadius: 99, padding: 3, alignSelf: 'flex-start' },
+  toggleBtn: { borderRadius: 99, paddingVertical: 7, paddingHorizontal: 16 },
 })

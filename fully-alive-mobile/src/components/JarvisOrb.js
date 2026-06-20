@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { Animated, Easing, StyleSheet, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 
-// The Jarvis orb — a breathing electric core with a soft outer glow.
+// The Coach orb — a breathing violet core with a soft outer glow.
 export default function JarvisOrb({ size = 140, intensity = 1 }) {
   const pulse = useRef(new Animated.Value(0)).current
   const drift = useRef(new Animated.Value(0)).current
@@ -48,9 +48,9 @@ export default function JarvisOrb({ size = 140, intensity = 1 }) {
             height: size * 1.26,
             borderRadius: size,
             borderWidth: 2,
-            borderRightColor: 'rgba(34, 211, 238, 0.7)',
-            borderBottomColor: 'rgba(34, 211, 238, 0.7)',
-            borderLeftColor: 'rgba(34, 211, 238, 0.18)',
+            borderRightColor: 'rgba(245, 158, 11, 0.65)',
+            borderBottomColor: 'rgba(245, 158, 11, 0.65)',
+            borderLeftColor: 'rgba(245, 158, 11, 0.15)',
             transform: [{ rotate: spin }],
           },
         ]}
@@ -63,16 +63,16 @@ export default function JarvisOrb({ size = 140, intensity = 1 }) {
             height: size * 1.44,
             borderRadius: size,
             borderWidth: 1.5,
-            borderRightColor: 'rgba(125, 167, 255, 0.45)',
-            borderTopColor: 'rgba(125, 167, 255, 0.45)',
-            borderBottomColor: 'rgba(125, 167, 255, 0.12)',
+            borderRightColor: 'rgba(167, 139, 250, 0.5)',
+            borderTopColor: 'rgba(167, 139, 250, 0.5)',
+            borderBottomColor: 'rgba(167, 139, 250, 0.12)',
             transform: [{ rotate: spinBack }],
           },
         ]}
       />
       <Animated.View style={{ transform: [{ scale: coreScale }] }}>
         <LinearGradient
-          colors={['#7DA7FF', '#2E6BFF', '#0B2B86']}
+          colors={['#c4b5fd', '#7c3aed', '#3b1d7a']}
           start={{ x: 0.2, y: 0.1 }}
           end={{ x: 0.85, y: 1 }}
           style={{ width: size, height: size, borderRadius: size / 2 }}
@@ -90,8 +90,8 @@ export default function JarvisOrb({ size = 140, intensity = 1 }) {
 const styles = StyleSheet.create({
   glow: {
     position: 'absolute',
-    backgroundColor: '#2E6BFF',
-    shadowColor: '#5E8BFF',
+    backgroundColor: '#7c3aed',
+    shadowColor: '#a78bfa',
     shadowOpacity: 0.9,
     shadowRadius: 60,
     shadowOffset: { width: 0, height: 0 },

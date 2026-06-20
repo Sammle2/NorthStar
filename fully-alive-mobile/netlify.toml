@@ -1,0 +1,22 @@
+# Netlify build config for the NorthStar Expo web app.
+#
+# IMPORTANT: In Netlify → Site configuration → Build & deploy → set
+# "Base directory" to `fully-alive-mobile` so Netlify reads this file and runs
+# the build from this folder. With the base set, the paths below are relative to it.
+[build]
+  command = "npx expo export -p web"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Single-page-app fallback so client-side routes resolve to the app shell.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Public Supabase values are compiled into the client as fallbacks, so the build
+# works without env vars. To override per-environment, set in Netlify env vars:
+#   EXPO_PUBLIC_SUPABASE_URL
+#   EXPO_PUBLIC_SUPABASE_ANON_KEY

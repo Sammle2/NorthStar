@@ -119,10 +119,10 @@ export default function Intake({ colors, onComplete }) {
                     onPress={() => setAnswers((a) => ({ ...a, [q.id]: opt }))}
                     style={[
                       styles.chip,
-                      { borderColor: on ? colors.cyan : colors.lineStrong, backgroundColor: on ? colors.electricSoft : 'transparent' },
+                      { borderColor: on ? colors.primary : colors.lineStrong, backgroundColor: on ? colors.primarySoft : 'transparent' },
                     ]}
                   >
-                    <Text style={{ color: on ? colors.cyan : colors.inkDim, fontSize: 12, fontWeight: on ? '800' : '500' }}>
+                    <Text style={{ color: on ? colors.primary : colors.inkDim, fontSize: 12, fontWeight: on ? '800' : '500' }}>
                       {opt}
                     </Text>
                   </Pressable>

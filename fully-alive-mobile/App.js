@@ -1,422 +1,502 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
-import JarvisOrb from './src/components/JarvisOrb'
-import Stars from './src/components/Stars'
+import React, { useEffect, useRef, useState } from 'react'
+import { Animated, Platform, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
-import { LinearGradient } from 'expo-linear-gradient'
-import { palettes } from './src/theme'
-import { loadState, saveState, dateKey, DEFAULT_STATE } from './src/storage'
-import { reconcileStreaks, generateTasksFor, bumpStreak, onePercent, goalUnits, goalPct, findGoal } from './src/logic'
-import { chat as jarvisChat, dreamImage } from './src/jarvis'
-import { pushState, pullState } from './src/sync'
-import Opening from './src/screens/Opening'
-import Intake from './src/screens/Intake'
-import Dashboard from './src/screens/Dashboard'
-import Schedule from './src/screens/Schedule'
-import Reflect from './src/screens/Reflect'
-import Weekly from './src/screens/Weekly'
-import Settings from './src/screens/Settings'
-import CheckIn from './src/screens/CheckIn'
-import Celebration from './src/components/Celebration'
+import { useFonts, Cinzel_600SemiBold, Cinzel_700Bold, Cinzel_900Black } from '@expo-google-fonts/cinzel'
+import {
+  Inter_300Light,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter'
 
-// Jarvis lives center stage; the other four flank him.
-const LEFT_TABS = [
-  { id: 'today', label: 'Today', icon: '☰' },
-  { id: 'weekly', label: 'Road Map', icon: '↗' },
-]
-const RIGHT_TABS = [
-  { id: 'reflect', label: 'Reflect', icon: '☾' },
-  { id: 'settings', label: 'Tune', icon: '⚙' },
-]
+// Network monitoring only on native
+let NetInfo = null
+if (Platform.OS !== 'web') {
+  try {
+    NetInfo = require('@react-native-community/netinfo').default
+  } catch (e) {
+    console.warn('NetInfo not available')
+  }
+}
 
+import { C } from './src/app/tokens'
+import { clearState, loadState, reviewDue, saveState } from './src/app/store'
+import { flushState, pullState, resetPushCache } from './src/services/cloudSync'
+import { resetProfilePushCache } from './src/services/socialService'
+import * as Linking from 'expo-linking'
+import Welcome from './src/app/screens/Welcome'
+import SignIn from './src/app/screens/SignIn'
+import SignUp from './src/app/screens/SignUp'
+import ResetPassword from './src/app/screens/ResetPassword'
+import Onboarding from './src/app/screens/Onboarding'
+import DreamReveal from './src/app/screens/DreamReveal'
+import Dashboard from './src/app/screens/Dashboard'
+import Roadmap from './src/app/screens/Roadmap'
+import Sprints from './src/app/screens/Sprints'
+import Social from './src/app/screens/Social'
+import DMs from './src/app/screens/DMs'
+import AddFriends from './src/app/components/AddFriends'
+import CoachChat from './src/app/screens/CoachChat'
+import Settings from './src/app/screens/Settings'
+import Navigation from './src/app/components/Navigation'
+import CoachReview from './src/app/components/CoachReview'
+import GoalEditor from './src/app/components/GoalEditor'
+import ErrorBoundary from './src/app/components/ErrorBoundary'
+import { onAuthStateChange, signOut as supabaseSignOut, signUpWithEmail } from './src/services/supabaseAuth'
+
+// On web, kill the default focus outline / tap-highlight (the "black box" that
+// appeared around tab icons when clicked). Native has no such artifact.
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  const s = document.createElement('style')
+  s.textContent = `* { outline: none !important; -webkit-tap-highlight-color: transparent; }`
+  document.head.appendChild(s)
+}
+
+// Faithful React Native port of the "Dream Life Roadmap" Figma build.
 export default function App() {
-  const [phase, setPhase] = useState('opening') // opening → intake → main
-  const [state, setState] = useState(null)
-  const [tab, setTab] = useState('home')
-  const [checkInOpen, setCheckInOpen] = useState(false)
-  const [celebration, setCelebration] = useState(null)
-  const [toast, setToast] = useState(null)
-  const [jarvisLine, setJarvisLine] = useState('…')
+  const [fontsLoaded] = useFonts({
+    Cinzel_600SemiBold,
+    Cinzel_700Bold,
+    Cinzel_900Black,
+    Inter_300Light,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  })
 
-  const colors = palettes[state?.user?.themeMode || 'dark']
+  const [booted, setBooted] = useState(false)
+  const [appState, setAppState] = useState({ profile: null, dreamRevealSeen: false })
+  const [screen, setScreen] = useState('welcome')
+  const [tab, setTab] = useState('dashboard')
+  const [showReview, setShowReview] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [editingGoal, setEditingGoal] = useState(null)
+  const [isOnline, setIsOnline] = useState(true)
+  const [authUser, setAuthUser] = useState(null)
+  const [authSubScreen, setAuthSubScreen] = useState('signin') // 'signin' or 'signup'
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [lastSyncAt, setLastSyncAt] = useState(null)
+  const [syncError, setSyncError] = useState(false)
+  const [hasSession, setHasSession] = useState(false) // true only with an active (confirmed) session
+  const [boundaryKey, setBoundaryKey] = useState(0) // bump to remount the tab tree after a caught crash
+  const [showDMs, setShowDMs] = useState(false)
+  const [showAddFriends, setShowAddFriends] = useState(false)
+  const [socialReload, setSocialReload] = useState(0)
+  const syncIntervalRef = useRef(null)
+  const authSubscriptionRef = useRef(null)
+  const appStateRef = useRef(appState)
+  appStateRef.current = appState // always-current snapshot for interval/listener callbacks
+  const hasSessionRef = useRef(false)
+  hasSessionRef.current = hasSession
 
-  // boot: load local (cloud snapshot on fresh installs), reconcile streaks, generate today
+  // Network connectivity monitoring (native only)
   useEffect(() => {
-    loadState().then(async (s) => {
-      let base = s
-      if (!s.intakeDone) {
-        const cloud = await pullState()
-        if (cloud?.intakeDone) base = { ...s, ...cloud }
-      }
-      const next = { ...base }
-      if (!next.startDate) next.startDate = dateKey()
-      next.streaks = reconcileStreaks(next)
-      if (next.intakeDone) {
-        next.tasks = { ...next.tasks, [dateKey()]: generateTasksFor(next) }
-      }
-      setState(next)
-      saveState(next)
+    if (!NetInfo) return
+
+    const unsubscribe = NetInfo.addEventListener(state => {
+      const online = state.isConnected && state.isInternetReachable
+      setIsOnline(online)
+      if (online) performSync() // flush the latest snapshot on reconnect
     })
+
+    return () => unsubscribe?.()
   }, [])
 
-  // proactive Jarvis line for the dashboard
+  // Safety-net flush loop (every 30s). The debounced push-on-save in store.js
+  // covers most writes; this catches anything that slipped through / went offline.
+  // Only runs with an active session — an unconfirmed signup has none, so we don't
+  // hammer RLS with writes that can't succeed yet.
   useEffect(() => {
-    if (phase !== 'main' || !state) return
-    let cancelled = false
-    jarvisChat(state, [
-      {
-        role: 'user',
-        text: 'Give me ONE complete punchy sentence (max 18 words) for my dashboard — witty, referencing my real data. No lists, no preamble, no trailing colon.',
-      },
-    ]).then((line) => !cancelled && setJarvisLine(line.split('\n')[0]))
-    return () => {
-      cancelled = true
+    if (isOnline && hasSession && appState.profile?.userId) {
+      syncIntervalRef.current = setInterval(performSync, 30000)
     }
-  }, [phase])
+    return () => {
+      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
+    }
+  }, [isOnline, hasSession, appState.profile?.userId])
 
-  const update = useCallback((fn) => {
-    setState((prev) => {
-      const next = fn(prev)
-      saveState(next)
-      pushState(next) // debounced cloud backup
-      return next
-    })
+  // Flush the current app-state blob to the cloud. No-op without a confirmed session.
+  const performSync = async () => {
+    const uid = appStateRef.current?.profile?.userId
+    if (!uid || !hasSessionRef.current) return
+    try {
+      setIsSyncing(true)
+      setSyncError(false)
+      await flushState(uid, appStateRef.current)
+      setLastSyncAt(new Date().toISOString())
+    } catch (error) {
+      console.error('[CloudSync] flush failed:', error?.message)
+      setSyncError(true)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  // Auth state listener
+  useEffect(() => {
+    try {
+      authSubscriptionRef.current = onAuthStateChange(({ event, session, user }) => {
+        setAuthUser(user)
+        setHasSession(!!session) // no session = unconfirmed signup → sync stays off
+        console.log('[Auth]', event, user?.email, session ? '(session)' : '(no session)')
+
+        // Recovery link established a session → let the user set a new password.
+        if (event === 'PASSWORD_RECOVERY') {
+          setScreen('reset-password')
+          return
+        }
+
+        // If logged out, clear profile and go to welcome
+        if (event === 'SIGNED_OUT' && screen === 'app') {
+          handleSignOut()
+        }
+      })
+    } catch (error) {
+      console.error('[Auth] Listener setup failed:', error?.message)
+    }
+
+    return () => {
+      try {
+        authSubscriptionRef.current?.unsubscribe?.()
+      } catch (e) {
+        console.error('[Auth] Unsubscribe failed:', e?.message)
+      }
+    }
+  }, [screen])
+
+  // Deep links: route a password-recovery link to the reset screen. On web,
+  // supabase-js also auto-detects the recovery token and fires PASSWORD_RECOVERY
+  // (handled above); on native this listener catches the northstar:// open.
+  useEffect(() => {
+    const onUrl = ({ url }) => {
+      if (url && (url.includes('reset-password') || url.includes('type=recovery'))) {
+        setScreen('reset-password')
+      }
+    }
+    const sub = Linking.addEventListener('url', onUrl)
+    Linking.getInitialURL().then((url) => { if (url) onUrl({ url }) }).catch(() => {})
+    return () => sub?.remove?.()
   }, [])
 
-  function completeTask(taskId) {
-    update((prev) => {
-      const key = dateKey()
-      const day = (prev.tasks[key] || []).map((t) =>
-        t.id === taskId ? { ...t, completed: true, skipped: false } : t,
-      )
-      let streaks = prev.streaks
-      const task = day.find((t) => t.id === taskId)
-      if (task?.linkedGoalId) streaks = bumpStreak(streaks, task.linkedGoalId)
-      const next = { ...prev, tasks: { ...prev.tasks, [key]: day }, streaks }
+  // Load app state and init
+  useEffect(() => {
+    // If the app was cold-opened from a password-recovery link, that wins over
+    // normal boot routing (web: URL is readable synchronously here).
+    const isRecoveryLink =
+      typeof window !== 'undefined' && /[?#&/](reset-password|type=recovery)/.test(window.location?.href || '')
 
-      // the math: every daily action is a measured % toward its goal
-      if (task?.linkedGoalId) {
-        const found = findGoal(next, task.linkedGoalId)
-        if (found) {
-          const before = goalPct(prev, found.goal)
-          const after = goalPct(next, found.goal)
-          const delta = after - before
-          if (after >= 100 && before < 100) {
-            setCelebration({
-              title: 'GOAL COMPLETE',
-              subtitle: `"${found.goal.title}" — one step closer to ${found.dream.title}.`,
-            })
-          } else if (delta > 0) {
-            setToast(`${delta < 1 ? delta.toFixed(1) : delta.toFixed(0)}% closer to your goal!`)
-          }
+    loadState()
+      .then((s) => {
+        setAppState(s)
+
+        // Flow: welcome → signin/signup → onboarding → dream → app
+        if (isRecoveryLink) {
+          setScreen('reset-password')
+        } else if (!s.profile) {
+          setScreen('welcome')
+        } else if (!s.profile.userId && !s.profile.email) {
+          // Profile exists but not linked to auth — need to sign in
+          setScreen('auth')
+        } else if (s.profile.dreamDescription || (s.profile.goals || []).length) {
+          // Returning, onboarded user: straight to the app. The dream reveal is a
+          // one-time onboarding step, never replayed — so we never strand them on
+          // that nav-less screen again.
+          setScreen('app')
+        } else {
+          // Signed in but onboarding unfinished — resume it.
+          setScreen('onboarding')
         }
+
+        setBooted(true)
+      })
+      .catch((error) => {
+        console.error('[App] Failed to load state:', error?.message)
+        setScreen('welcome')
+        setBooted(true)
+      })
+  }, [])
+
+  useEffect(() => {
+    if (screen === 'app' && reviewDue(appState.profile)) setShowReview(true)
+  }, [screen, appState.profile])
+
+  const persist = (next) => {
+    setAppState(next)
+    saveState(next)
+  }
+  const updateProfile = (profile) => persist({ ...appState, profile })
+
+  const handleSignInSuccess = async (user) => {
+    console.log('[Auth] Sign-in success:', user.email)
+    setAuthUser(user)
+    resetPushCache() // new session — make sure the first save pushes
+    resetProfilePushCache()
+
+    // Pull this user's cloud snapshot so a returning user on a fresh device
+    // gets their dream/goals/progress back.
+    const cloud = await pullState(user.id)
+    const cloudProfile = cloud?.state?.profile
+
+    let nextState
+    if (cloudProfile && (cloudProfile.dreamDescription || (cloudProfile.goals || []).length)) {
+      // Returning user with real cloud data — adopt it (cloud wins on sign-in).
+      nextState = {
+        ...cloud.state,
+        profile: { ...cloudProfile, userId: user.id, email: user.email },
       }
+    } else {
+      // No meaningful cloud data — keep whatever's local, just link the account.
+      const p = appState.profile || {}
+      nextState = { ...appState, profile: { ...p, userId: user.id, email: user.email } }
+    }
 
-      // cinematic moments: all priorities done, or a milestone streak
-      const high = day.filter((t) => t.priority === 'high')
-      if (high.length && high.every((t) => t.completed)) {
-        const op = onePercent(next)
-        setCelebration({
-          title: 'You got 1% better today.',
-          subtitle: `Compounded: +${op.compoundPct}% since you started. Keep the chain.`,
-        })
-      } else if (task?.linkedGoalId) {
-        const c = streaks[task.linkedGoalId]?.current || 0
-        if (c === 7 || c === 30 || c === 100)
-          setCelebration({ title: `${c}-day streak`, subtitle: 'A milestone on the narrow path.' })
+    // Route based on the resolved profile. A returning, onboarded user goes
+    // STRAIGHT TO THE APP on sign-in — the dream reveal is a one-time onboarding
+    // moment, never replayed on login. We also mark it seen so cold-boot routing
+    // agrees and can never strand them on that nav-less screen again.
+    const prof = nextState.profile
+    const onboarded = !!(prof.dreamDescription || (prof.goals || []).length)
+    if (onboarded) {
+      persist({ ...nextState, dreamRevealSeen: true })
+      setTab('dashboard')
+      setScreen('app')
+    } else {
+      persist(nextState)
+      setScreen('onboarding')
+    }
+  }
+
+  const freshProfile = (user, name = '') => ({
+    userId: user.id,
+    email: user.email,
+    username: '',
+    bio: '',
+    avatarUrl: null,
+    visibility: 'private',
+    name: name || '',
+    coachName: 'Coach',
+    coachTone: 'default',
+    dreamDescription: '',
+    dreamStory: '',
+    gender: '',
+    age: '',
+    location: '',
+    joinedDate: new Date().toISOString(),
+    lastCheckIn: null,
+    streak: 0,
+    goals: [],
+    dailyActions: [],
+    visionBoardKeywords: [],
+    visionBoardImages: [],
+    nonNeg: {},
+    lastCheckInDate: null,
+    sprints: [],
+    lastLongTermReview: null,
+    dreamRevealSeen: false,
+    autoSyncEnabled: true,
+    lastSyncTime: null,
+    apiKeys: { claude: null, dalle: null },
+  })
+
+  const handleSignUpSuccess = (user, metadata) => {
+    console.log('[Auth] Sign-up success:', user.email)
+    persist({ profile: freshProfile(user, metadata.name), dreamRevealSeen: false })
+    setAuthUser(user)
+    setScreen('onboarding')
+  }
+
+  // "Begin Your Journey" — no email/login step. Create a silent account so the
+  // user has a real session (cloud sync + social work), then go straight to the
+  // Coach intake. They can set a username later; returning users use "Sign in".
+  const handleBegin = async () => {
+    // Returning, already-signed-in user tapping the CTA: don't mint a new silent
+    // account — route them into their existing journey by how far they've gotten.
+    const existing = appStateRef.current?.profile
+    if (existing?.userId) {
+      if (existing.dreamDescription || (existing.goals || []).length) {
+        // Already onboarded → straight into the app, never replay the dream reveal.
+        persist({ ...appStateRef.current, dreamRevealSeen: true })
+        setTab('dashboard')
+        setScreen('app')
+      } else {
+        // Signed in but intake unfinished → resume the Coach intake form.
+        setScreen('onboarding')
       }
-      return next
-    })
+      return
+    }
+
+    const rand = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`
+    const email = `northstar.${rand}@gmail.com`
+    const password = `Ns!${Math.random().toString(36).slice(2, 12)}A1`
+    const { user, session, error } = await signUpWithEmail(email, password)
+    if (error || !user) {
+      // Fallback to the normal auth screen if the silent signup fails.
+      console.warn('[Auth] silent begin failed, showing auth:', error)
+      setAuthSubScreen('signup')
+      setScreen('auth')
+      return
+    }
+    resetPushCache()
+    resetProfilePushCache()
+    setAuthUser(user)
+    persist({ profile: freshProfile(user), dreamRevealSeen: false })
+    setScreen('onboarding')
   }
 
-  function skipTask(taskId) {
-    update((prev) => {
-      const key = dateKey()
-      const day = (prev.tasks[key] || []).map((t) =>
-        t.id === taskId ? { ...t, skipped: true, completed: false } : t,
-      )
-      return { ...prev, tasks: { ...prev.tasks, [key]: day } }
-    })
+  const handleSignOut = async () => {
+    // Push any unsynced changes before we drop the session.
+    try {
+      const uid = appStateRef.current?.profile?.userId
+      if (uid) await flushState(uid, appStateRef.current)
+    } catch (e) {
+      console.warn('[CloudSync] final flush on sign-out failed:', e?.message)
+    }
+    await supabaseSignOut()
+    resetPushCache()
+    resetProfilePushCache()
+    clearState()
+    setShowSettings(false)
+    setAuthUser(null)
+    setLastSyncAt(null)
+    setSyncError(false)
+    setAppState({ profile: null, dreamRevealSeen: false })
+    setScreen('welcome')
   }
 
-  function moveTask(taskId, dir) {
-    update((prev) => {
-      const key = dateKey()
-      const day = [...(prev.tasks[key] || [])]
-      const lows = day.filter((t) => t.priority === 'low')
-      const i = lows.findIndex((t) => t.id === taskId)
-      const j = i + dir
-      if (i < 0 || j < 0 || j >= lows.length) return prev
-      const a = day.indexOf(lows[i])
-      const b = day.indexOf(lows[j])
-      ;[day[a], day[b]] = [day[b], day[a]]
-      return { ...prev, tasks: { ...prev.tasks, [key]: day } }
-    })
+  // After the server has deleted the account (delete-account edge function), tear
+  // down the local session — no flush (the cloud row is already gone).
+  const handleDeleteAccount = async () => {
+    try {
+      await supabaseSignOut()
+    } catch (e) {
+      console.warn('[Auth] sign-out after delete failed:', e?.message)
+    }
+    resetPushCache()
+    resetProfilePushCache()
+    clearState()
+    setShowSettings(false)
+    setAuthUser(null)
+    setHasSession(false)
+    setLastSyncAt(null)
+    setSyncError(false)
+    setAppState({ profile: null, dreamRevealSeen: false })
+    setScreen('welcome')
   }
 
-  function finishIntake(result) {
-    update((prev) => {
-      const next = {
-        ...prev,
-        intakeDone: true,
-        dreams: result.dreams,
-        dreamLifeStory: result.narrative,
-        dreamSeed: Math.floor(Math.random() * 1000) + 1,
-      }
-      next.tasks = { ...next.tasks, [dateKey()]: generateTasksFor(next) }
-      return next
-    })
-    setPhase('main')
-    setCelebration({ title: 'The path is set.', subtitle: 'Day one of the becoming starts now.' })
-    // render the dream-life image in the background (Gemini)
-    dreamImage(result.narrative, result.dreams.map((d) => d.title)).then((img) => {
-      if (img) update((prev) => ({ ...prev, dreamImage: img }))
-    })
+  const handleOnboardingComplete = (profile) => {
+    persist({ profile, dreamRevealSeen: false })
+    setScreen('dream')
   }
 
-  if (!state) return <View style={{ flex: 1, backgroundColor: '#040918' }} />
+  const handleDreamContinue = () => {
+    persist({ ...appState, dreamRevealSeen: true })
+    setTab('dashboard')
+    setScreen('app')
+  }
 
-  if (phase === 'opening')
-    return <Opening colors={colors} onDone={() => setPhase(state.intakeDone ? 'main' : 'intake')} />
+  const handleReset = async () => {
+    await handleSignOut()
+  }
+  const handleReviewComplete = (profile) => {
+    persist({ ...appState, profile })
+    setShowReview(false)
+  }
+  const handleGoalSave = (updatedGoal) => {
+    const goals = p.goals.map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
+    persist({ ...appState, profile: { ...p, goals } })
+    setEditingGoal(null)
+  }
+
+  if (!fontsLoaded || !booted) return <View style={{ flex: 1, backgroundColor: C.bg }} />
+
+  const p = appState.profile
 
   return (
-    <LinearGradient colors={colors.bgGrad} style={styles.fill}>
-      {state.user.themeMode === 'dark' && <Stars />}
-      <StatusBar style={state.user.themeMode === 'dark' ? 'light' : 'dark'} />
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <StatusBar style="light" />
 
-      {phase === 'intake' && <Intake colors={colors} onComplete={finishIntake} />}
+      <ErrorBoundary key={`root-${boundaryKey}`} onReset={() => setBoundaryKey((k) => k + 1)}>
+      {screen === 'welcome' && <Welcome onBegin={handleBegin} onSignIn={() => { setAuthSubScreen('signin'); setScreen('auth') }} />}
 
-      {phase === 'main' && (
+      {screen === 'auth' && (
         <>
-          <View style={styles.fill}>
-            {tab === 'home' && (
-              <Dashboard
-                state={state}
-                colors={colors}
-                jarvisLine={jarvisLine}
-                onCheckIn={() => setCheckInOpen(true)}
-                onToggleTask={completeTask}
-                setPersonality={(p) =>
-                  update((prev) => ({ ...prev, user: { ...prev.user, jarvisPersonality: p } }))
-                }
-              />
-            )}
-            {tab === 'today' && (
-              <Schedule state={state} colors={colors} onComplete={completeTask} onSkip={skipTask} onMove={moveTask} />
-            )}
-            {tab === 'weekly' && <Weekly state={state} colors={colors} />}
-            {tab === 'reflect' && (
-              <Reflect
-                state={state}
-                colors={colors}
-                onSave={(key, r) =>
-                  update((prev) => ({ ...prev, reflections: { ...prev.reflections, [key]: r } }))
-                }
-              />
-            )}
-            {tab === 'settings' && (
-              <Settings
-                state={state}
-                colors={colors}
-                setPersonality={(p) =>
-                  update((prev) => ({ ...prev, user: { ...prev.user, jarvisPersonality: p } }))
-                }
-                setThemeMode={(m) =>
-                  update((prev) => ({ ...prev, user: { ...prev.user, themeMode: m } }))
-                }
-                onResetIntake={() => {
-                  update((prev) => ({ ...DEFAULT_STATE, user: prev.user, startDate: prev.startDate }))
-                  setPhase('intake')
-                }}
-              />
-            )}
-          </View>
-
-          {/* tab bar — Jarvis spills over the center, lights pulsing around him */}
-          <View>
-            <View style={[styles.tabBar, { backgroundColor: colors.raised, borderColor: colors.lineStrong }]}>
-              {LEFT_TABS.map((t) => (
-                <TabButton key={t.id} t={t} active={tab === t.id} colors={colors} onPress={() => setTab(t.id)} />
-              ))}
-              <View style={styles.tab} pointerEvents="none" />
-              {RIGHT_TABS.map((t) => (
-                <TabButton key={t.id} t={t} active={tab === t.id} colors={colors} onPress={() => setTab(t.id)} />
-              ))}
-            </View>
-            <OrbTab
-              active={tab === 'home'}
-              alert={!(state.chat || []).some((m) => (m.ts || '').slice(0, 10) === dateKey())}
-              colors={colors}
-              onPress={() => setTab('home')}
-            />
-          </View>
-
-          <Modal visible={checkInOpen} animationType="slide" onRequestClose={() => setCheckInOpen(false)}>
-            <CheckIn
-              state={state}
-              colors={colors}
-              onClose={() => setCheckInOpen(false)}
-              onAppendChat={(m) => update((prev) => ({ ...prev, chat: [...prev.chat, m].slice(-200) }))}
-            />
-          </Modal>
+          {authSubScreen === 'signin' ? (
+            <SignIn onSignInSuccess={handleSignInSuccess} onSwitchToSignUp={() => setAuthSubScreen('signup')} profile={appState.profile} />
+          ) : (
+            <SignUp onSignUpSuccess={handleSignUpSuccess} onSwitchToSignIn={() => setAuthSubScreen('signin')} />
+          )}
         </>
       )}
 
-      {celebration && (
-        <Celebration
-          title={celebration.title}
-          subtitle={celebration.subtitle}
-          onDone={() => setCelebration(null)}
+      {screen === 'reset-password' && (
+        <ResetPassword
+          onDone={() => {
+            // New password set. If we already have a full profile, go to the app;
+            // otherwise send them to sign in.
+            if (p && p.userId && p.dreamDescription) setScreen('app')
+            else { setAuthSubScreen('signin'); setScreen('auth') }
+          }}
         />
       )}
-      {toast && <Toast key={toast} text={toast} colors={colors} onDone={() => setToast(null)} />}
-    </LinearGradient>
-  )
-}
 
-// Small progress banner: "+1.6% toward 'Write my book' · now 34%"
-function Toast({ text, colors, onDone }) {
-  const a = useRef(new Animated.Value(0)).current
-  useEffect(() => {
-    Animated.sequence([
-      Animated.timing(a, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
-      Animated.delay(2100),
-      Animated.timing(a, { toValue: 0, duration: 380, easing: Easing.in(Easing.cubic), useNativeDriver: false }),
-    ]).start(() => onDone?.())
-  }, [])
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        styles.toast,
-        {
-          backgroundColor: colors.raised,
-          borderColor: colors.cyan,
-          shadowColor: colors.cyan,
-          opacity: a,
-          transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) }],
-        },
-      ]}
-    >
-      <Text style={{ color: colors.cyan, fontWeight: '800', fontSize: 13.5, textAlign: 'center' }}>
-        {text}
-      </Text>
-    </Animated.View>
-  )
-}
+      {screen === 'onboarding' && <Onboarding onComplete={handleOnboardingComplete} />}
+      {screen === 'dream' && p && <DreamReveal profile={p} onContinue={handleDreamContinue} />}
 
-function TabButton({ t, active, colors, onPress }) {
-  return (
-    <Pressable style={styles.tab} onPress={onPress}>
-      <Text style={{ fontSize: 17, color: active ? colors.cyan : colors.inkFaint }}>{t.icon}</Text>
-      <Text
-        style={{
-          fontSize: 10.5,
-          fontWeight: '700',
-          marginTop: 2,
-          letterSpacing: 0.4,
-          color: active ? colors.ink : colors.inkFaint,
-        }}
-      >
-        {t.label}
-      </Text>
-      {active && <View style={[styles.tabDot, { backgroundColor: colors.cyan }]} />}
-    </Pressable>
-  )
-}
+      {screen === 'app' && p && (
+        <View style={{ flex: 1 }}>
+          <ErrorBoundary key={`${tab}-${boundaryKey}`} onReset={() => setBoundaryKey((k) => k + 1)}>
+            <TabFade tabKey={tab}>
+              {tab === 'dashboard' && <Dashboard profile={p} onUpdate={updateProfile} onOpenSettings={() => setShowSettings(true)} />}
+              {tab === 'roadmap' && <Roadmap profile={p} onUpdate={updateProfile} onRedoGoal={setEditingGoal} />}
+              {tab === 'sprints' && <Sprints profile={p} onUpdate={updateProfile} />}
+              {tab === 'community' && <Social profile={p} reloadKey={socialReload} onOpenDMs={() => setShowDMs(true)} onOpenAddFriends={() => setShowAddFriends(true)} />}
+              {tab === 'coach' && <CoachChat profile={p} onUpdate={updateProfile} />}
+            </TabFade>
+          </ErrorBoundary>
 
-// The center orb: bigger than everything, breaking out of the bar.
-// The light rings only pulse when Jarvis has something for you (check-in due).
-function OrbTab({ active, alert, colors, onPress }) {
-  const pulse = useRef(new Animated.Value(0)).current
-  useEffect(() => {
-    if (!alert) {
-      pulse.setValue(0)
-      return
-    }
-    const loop = Animated.loop(
-      Animated.timing(pulse, { toValue: 1, duration: 2200, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
-    )
-    loop.start()
-    return () => loop.stop()
-  }, [alert])
-  const ringStyle = (delay) => ({
-    opacity: pulse.interpolate({
-      inputRange: [delay, Math.min(delay + 0.15, 1), 1],
-      outputRange: [0, 0.5, 0],
-      extrapolate: 'clamp',
-    }),
-    transform: [
-      {
-        scale: pulse.interpolate({ inputRange: [delay, 1], outputRange: [0.9, 1.65], extrapolate: 'clamp' }),
-      },
-    ],
-  })
-  return (
-    <View pointerEvents="box-none" style={styles.orbSlot}>
-      {[0, 0.35].map((d) => (
-        <Animated.View key={d} style={[styles.orbRing, { borderColor: colors.cyan }, ringStyle(d)]} />
-      ))}
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.orbBtn,
-          { borderColor: active ? colors.cyan : colors.lineStrong, backgroundColor: colors.bg },
-          pressed && { transform: [{ scale: 0.94 }] },
-        ]}
-      >
-        <JarvisOrb size={46} intensity={active ? 1 : 0.55} />
-      </Pressable>
+          <Navigation active={tab} onChange={setTab} />
+
+          {showReview && <CoachReview profile={p} onComplete={handleReviewComplete} />}
+          {showSettings && (
+            <Settings
+              profile={p}
+              onUpdate={updateProfile}
+              onClose={() => setShowSettings(false)}
+              onReset={handleReset}
+              isSyncing={isSyncing}
+              lastSyncAt={lastSyncAt}
+              syncError={syncError}
+              awaitingConfirmation={!!p.userId && !hasSession}
+              onSignOut={handleSignOut}
+              onDeleteAccount={handleDeleteAccount}
+            />
+          )}
+          {editingGoal && <GoalEditor goal={editingGoal} onSave={handleGoalSave} onCancel={() => setEditingGoal(null)} dream={p.dreamDescription} />}
+          {showDMs && <DMs profile={p} onClose={() => setShowDMs(false)} />}
+          {showAddFriends && <AddFriends profile={p} onClose={() => setShowAddFriends(false)} onChanged={() => setSocialReload((k) => k + 1)} />}
+        </View>
+      )}
+      </ErrorBoundary>
     </View>
   )
 }
 
-const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  tabBar: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    paddingBottom: 18,
-    paddingTop: 10,
-  },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 6 },
-  tabDot: { width: 4, height: 4, borderRadius: 2, marginTop: 3 },
-  orbSlot: {
-    position: 'absolute',
-    top: -34,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  orbRing: {
-    position: 'absolute',
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 1.5,
-  },
-  orbBtn: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  toast: {
-    position: 'absolute',
-    top: 64,
-    left: 24,
-    right: 24,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-    zIndex: 50,
-  },
-})
+// Cross-fades + "pops" tab content on switch — the Figma's page transition.
+function TabFade({ tabKey, children }) {
+  const fade = useRef(new Animated.Value(0)).current
+  const rise = useRef(new Animated.Value(14)).current
+  const scale = useRef(new Animated.Value(0.97)).current
+  useEffect(() => {
+    fade.setValue(0)
+    rise.setValue(14)
+    scale.setValue(0.97)
+    Animated.parallel([
+      Animated.timing(fade, { toValue: 1, duration: 280, useNativeDriver: true }),
+      Animated.spring(rise, { toValue: 0, useNativeDriver: true, friction: 8, tension: 80 }),
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 7, tension: 80 }),
+    ]).start()
+  }, [tabKey])
+  return <Animated.View style={{ flex: 1, opacity: fade, transform: [{ translateY: rise }, { scale }] }}>{children}</Animated.View>
+}

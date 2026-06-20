@@ -28,7 +28,7 @@ export default function Settings({ state, colors, setPersonality, setThemeMode, 
         <Switch
           value={dark}
           onValueChange={(v) => setThemeMode(v ? 'dark' : 'light')}
-          trackColor={{ true: colors.electric, false: '#888' }}
+          trackColor={{ true: colors.primary, false: '#888' }}
         />
       </Card>
 

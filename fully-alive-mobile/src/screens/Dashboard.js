@@ -3,7 +3,7 @@ import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-nativ
 import { LinearGradient } from 'expo-linear-gradient'
 import JarvisOrb from '../components/JarvisOrb'
 import PersonalitySlider from '../components/PersonalitySlider'
-import { Card } from '../components/Ui'
+import { Card, GlowBar } from '../components/Ui'
 import { topStreak } from '../logic'
 import { dateKey } from '../storage'
 import { catColor } from '../theme'
@@ -57,20 +57,20 @@ export default function Dashboard({ state, colors, onCheckIn, onToggleTask, setP
           style={[
             styles.streakPill,
             {
-              backgroundColor: colors.electricSoft,
+              backgroundColor: colors.primarySoft,
               borderColor: pillPulse.interpolate({
                 inputRange: [0, 1],
-                outputRange: ['rgba(34,211,238,0.25)', 'rgba(34,211,238,0.9)'],
+                outputRange: ['rgba(245,158,11,0.25)', 'rgba(245,158,11,0.85)'],
               }),
-              shadowColor: colors.cyan,
+              shadowColor: colors.primary,
               shadowOpacity: pillPulse.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.6] }),
               shadowRadius: 12,
               shadowOffset: { width: 0, height: 0 },
             },
           ]}
         >
-          <Text style={{ color: colors.cyan, fontWeight: '800', fontSize: 14 }}>
-            ⚡ {streak} day{streak === 1 ? '' : 's'}
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14 }}>
+            🔥 {streak} day{streak === 1 ? '' : 's'}
           </Text>
         </Animated.View>
         <Pressable onPress={() => setShowSlider(!showSlider)}>
@@ -101,12 +101,12 @@ export default function Dashboard({ state, colors, onCheckIn, onToggleTask, setP
         <Animated.View style={enter(0.45, 0.85)}>
           <Pressable onPress={onCheckIn} style={({ pressed }) => [pressed && { transform: [{ scale: 0.96 }] }]}>
             <LinearGradient
-              colors={colors.accentGrad}
+              colors={colors.primaryGrad}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={[styles.checkBtn, { shadowColor: colors.electric, shadowOpacity: 0.55, shadowRadius: 18, shadowOffset: { width: 0, height: 4 } }]}
+              style={[styles.checkBtn, { shadowColor: colors.primary, shadowOpacity: 0.45, shadowRadius: 20, shadowOffset: { width: 0, height: 0 } }]}
             >
-              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.3 }}>
+              <Text style={{ color: colors.primaryInk, fontWeight: '800', fontSize: 15, letterSpacing: 0.3 }}>
                 How are you doing?
               </Text>
             </LinearGradient>
@@ -114,8 +114,34 @@ export default function Dashboard({ state, colors, onCheckIn, onToggleTask, setP
         </Animated.View>
       </View>
 
-      {/* today's priorities */}
+      {/* today's progress — the glowing bar from the mockup */}
       <Animated.View style={[{ paddingHorizontal: 22, flex: 1 }, enter(0.6, 1)]}>
+        <View
+          style={{
+            backgroundColor: colors.violetSoft,
+            borderColor: colors.line,
+            borderWidth: 1,
+            borderRadius: 16,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            marginBottom: 10,
+          }}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Text style={{ color: colors.inkDim, fontSize: 10.5, fontWeight: '700', letterSpacing: 1.6, textTransform: 'uppercase' }}>
+              Today's progress
+            </Text>
+            <Text style={{ color: colors.violet, fontSize: 12.5, fontWeight: '700' }}>
+              {today.filter((t) => t.completed).length}/{today.length}
+            </Text>
+          </View>
+          <GlowBar
+            colors={colors}
+            color={colors.violet}
+            height={7}
+            value={today.length ? (today.filter((t) => t.completed).length / today.length) * 100 : 0}
+          />
+        </View>
         <Card colors={colors} style={{ paddingVertical: 8 }}>
           {priority.length === 0 && (
             <Text style={{ color: colors.inkFaint, fontSize: 13.5, paddingVertical: 10 }}>

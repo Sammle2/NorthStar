@@ -1,43 +1,63 @@
-// Road Map — electric deep blue, minimal, premium.
+// Road Map — the Figma look: near-black night sky, amber primary, violet coach.
 export const palettes = {
   dark: {
-    bg: '#070417',
-    // the dream: deep night sky drifting from indigo into violet
-    bgGrad: ['#070417', '#0C0A30', '#191250', '#2A1458'],
-    raised: 'rgba(26, 22, 64, 0.72)',
-    line: 'rgba(150, 140, 255, 0.14)',
-    lineStrong: 'rgba(150, 140, 255, 0.28)',
-    ink: '#ECEAFB',
-    inkDim: 'rgba(236, 234, 251, 0.6)',
-    inkFaint: 'rgba(236, 234, 251, 0.35)',
-    electric: '#4F6BFF',
-    electricSoft: 'rgba(79, 107, 255, 0.18)',
-    glow: '#8A9BFF',
-    cyan: '#22D3EE',
-    violet: '#A78BFA',
-    accentGrad: ['#4F6BFF', '#A78BFA'],
-    success: '#34D399',
-    danger: '#F87171',
-    gold: '#FBBF24',
+    bg: '#07070f',
+    // near-black with the faintest violet drift at the horizon
+    bgGrad: ['#07070f', '#0a0a18', '#100e26', '#191238'],
+    raised: 'rgba(13, 13, 27, 0.82)',
+    line: 'rgba(167, 139, 250, 0.12)',
+    lineStrong: 'rgba(167, 139, 250, 0.25)',
+    ink: '#f1f5f9',
+    inkDim: '#94a3b8',
+    inkFaint: '#64748b',
+    // amber is THE accent: CTAs, streaks, progress, active states
+    primary: '#f59e0b',
+    primaryDeep: '#d97706',
+    primarySoft: 'rgba(245, 158, 11, 0.12)',
+    primaryInk: '#07070f', // text on amber
+    primaryGrad: ['#f59e0b', '#d97706'],
+    // violet is the Coach's color: avatar, bubbles, ambient glow
+    violet: '#a78bfa',
+    violetDeep: '#7c3aed',
+    violetSoft: 'rgba(167, 139, 250, 0.1)',
+    coachGrad: ['#7c3aed', '#a78bfa'],
+    gold: '#f59e0b', // alias — the path is paved in amber
+    // the wordmark: starlight → amber → violet
+    wordGrad: ['#f8fafc', '#f59e0b', '#a78bfa'],
+    triGrad: ['#f59e0b', '#a78bfa', '#7c3aed'],
+    success: '#10b981',
+    danger: '#ef4444',
   },
   light: {
-    bg: '#EEF3FE',
-    bgGrad: ['#F2F5FF', '#E3ECFE', '#E5E0FA', '#D5E8FE'],
-    raised: 'rgba(255, 255, 255, 0.85)',
-    line: 'rgba(30, 64, 160, 0.12)',
-    lineStrong: 'rgba(30, 64, 160, 0.24)',
-    ink: '#0A1B40',
-    inkDim: 'rgba(10, 27, 64, 0.62)',
-    inkFaint: 'rgba(10, 27, 64, 0.38)',
-    electric: '#1D4ED8',
-    electricSoft: 'rgba(29, 78, 216, 0.12)',
-    glow: '#3B82F6',
-    cyan: '#0891B2',
-    accentGrad: ['#1D4ED8', '#0891B2'],
+    bg: '#faf8f3',
+    bgGrad: ['#fdfcf9', '#f7f3ea', '#f1ebf8', '#ece4f6'],
+    raised: 'rgba(255, 255, 255, 0.88)',
+    line: 'rgba(124, 58, 237, 0.12)',
+    lineStrong: 'rgba(124, 58, 237, 0.24)',
+    ink: '#1a1230',
+    inkDim: 'rgba(26, 18, 48, 0.64)',
+    inkFaint: 'rgba(26, 18, 48, 0.4)',
+    primary: '#d97706',
+    primaryDeep: '#b45309',
+    primarySoft: 'rgba(217, 119, 6, 0.12)',
+    primaryInk: '#ffffff',
+    primaryGrad: ['#f59e0b', '#d97706'],
+    violet: '#7c3aed',
+    violetDeep: '#5b21b6',
+    violetSoft: 'rgba(124, 58, 237, 0.08)',
+    coachGrad: ['#5b21b6', '#7c3aed'],
+    gold: '#d97706',
+    wordGrad: ['#475569', '#d97706', '#7c3aed'],
+    triGrad: ['#d97706', '#7c3aed', '#5b21b6'],
     success: '#059669',
-    danger: '#DC2626',
-    gold: '#D97706',
+    danger: '#dc2626',
   },
+}
+
+// Cinematic serif for display text; system sans for body.
+export const fonts = {
+  display: 'Cinzel_700Bold',
+  displayHeavy: 'Cinzel_900Black',
 }
 
 export const CATEGORY_COLORS = {

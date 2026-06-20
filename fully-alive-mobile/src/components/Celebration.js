@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from 'react'
 import { Animated, Dimensions, Easing, StyleSheet, Text, View } from 'react-native'
+import { fonts } from '../theme'
 
 const { width: W, height: H } = Dimensions.get('window')
-const SPARK_COLORS = ['#7DA7FF', '#22D3EE', '#FBBF24', '#FFFFFF']
+const SPARK_COLORS = ['#f59e0b', '#a78bfa', '#fbbf24', '#FFFFFF']
 const PARTICLES = Array.from({ length: 18 }, (_, i) => ({
   angle: (i / 18) * Math.PI * 2,
   dist: 110 + (i % 3) * 55,
@@ -91,7 +92,7 @@ const styles = StyleSheet.create({
     top: 0, left: 0, width: W, height: H,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(4, 9, 24, 0.78)',
+    backgroundColor: 'rgba(7, 7, 15, 0.8)',
     zIndex: 100,
   },
   ring: {
@@ -100,15 +101,15 @@ const styles = StyleSheet.create({
     height: 160,
     borderRadius: 80,
     borderWidth: 2,
-    borderColor: '#5E8BFF',
+    borderColor: '#f59e0b',
   },
   particle: { position: 'absolute' },
   card: { alignItems: 'center', paddingHorizontal: 32 },
   title: {
     color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    fontSize: 26,
+    fontFamily: fonts.display,
+    letterSpacing: 1.5,
     textAlign: 'center',
   },
   subtitle: {

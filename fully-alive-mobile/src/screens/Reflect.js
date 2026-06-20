@@ -39,10 +39,10 @@ export default function Reflect({ state, colors, onSave }) {
               style={[
                 styles.moodBtn,
                 { borderColor: colors.lineStrong },
-                mood === n && { backgroundColor: colors.electric, borderColor: colors.electric },
+                mood === n && { backgroundColor: colors.primary, borderColor: colors.primary },
               ]}
             >
-              <Text style={{ color: mood === n ? '#fff' : colors.inkDim, fontWeight: '700', fontSize: 12 }}>{n}</Text>
+              <Text style={{ color: mood === n ? colors.primaryInk : colors.inkDim, fontWeight: '700', fontSize: 12 }}>{n}</Text>
             </Pressable>
           ))}
         </View>
