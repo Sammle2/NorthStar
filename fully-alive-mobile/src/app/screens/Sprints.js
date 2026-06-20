@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { CalendarClock, Check, Plus, X } from 'lucide-react-native'
+import { CalendarClock, Check, Plus, Sparkles, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
 import { buildGoal } from '../aiEngine'
+import dailyActionGenerator from '../../services/dailyActionGenerator'
 
 // Short-term milestones — quick, deadline-driven things ("a test coming up").
 // On add, the user says whether it belongs to a goal they're pursuing, starts a
@@ -28,6 +29,12 @@ export default function Sprints({ profile, onUpdate }) {
   const [kind, setKind] = useState('standalone')
   const [linkedGoalId, setLinkedGoalId] = useState(null)
   const [newGoalText, setNewGoalText] = useState('')
+
+  // "Daily steps" generator — break a goal into small day-by-day sprints.
+  const [genGoalId, setGenGoalId] = useState(null)
+  const [genDays, setGenDays] = useState(5)
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState('')
 
   const ready =
     title.trim() &&
@@ -68,6 +75,51 @@ export default function Sprints({ profile, onUpdate }) {
   const toggle = (id) =>
     onUpdate({ ...profile, sprints: sprints.map((s) => (s.id === id ? { ...s, completed: !s.completed } : s)) })
   const remove = (id) => onUpdate({ ...profile, sprints: sprints.filter((s) => s.id !== id) })
+
+  // Ask Coach to break the goal's current milestone into day-by-day steps, then
+  // drop them in as linked sprints (Day 1, Day 2, …). Falls back to the
+  // milestone's own stepping stones if the AI is unreachable, so it never dead-ends.
+  const generateDaily = async () => {
+    const g = goals.find((x) => x.id === genGoalId)
+    if (!g || generating) return
+    setGenerating(true)
+    setGenError('')
+    try {
+      const found = (g.milestones || []).findIndex((m) => !m.completed)
+      const idx = found === -1 ? 0 : found
+      let actions
+      try {
+        actions = await dailyActionGenerator.generateDailyActionsForMilestone(g, idx, profile.coachTone || 'default')
+      } catch (e) {
+        // Local fallback: spread the current milestone's stepping stones over days.
+        const stones = (g.milestones?.[idx]?.steps || []).map((s) => ({ title: s.title }))
+        if (!stones.length) throw e
+        actions = stones
+      }
+      const groupId = `daygrp_${Date.now()}`
+      const picked = (actions || []).slice(0, genDays)
+      if (!picked.length) throw new Error('No steps came back — try again.')
+      const daySprints = picked.map((a, i) => ({
+        id: `${groupId}_${i}`,
+        title: a.title,
+        due: `Day ${i + 1}`,
+        completed: false,
+        createdAt: new Date().toISOString(),
+        kind: 'linked',
+        linkedGoalId: g.id,
+        goalTitle: g.title,
+        goalCategory: g.category,
+        day: i + 1,
+        group: groupId,
+      }))
+      onUpdate({ ...profile, sprints: [...daySprints, ...sprints] })
+      setGenGoalId(null)
+    } catch (e) {
+      setGenError(e?.message || 'Could not generate steps. Try again.')
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   const active = sprints.filter((s) => !s.completed)
   const done = sprints.filter((s) => s.completed)
@@ -173,6 +225,65 @@ export default function Sprints({ profile, onUpdate }) {
             )}
           </Pressable>
         </View>
+
+        {/* Daily-steps generator — break a goal into day-by-day sprints */}
+        {goals.length > 0 && (
+          <View style={{ marginHorizontal: 24, marginTop: 16, borderRadius: 18, padding: 18, backgroundColor: 'rgba(13,13,27,0.85)', borderWidth: 1, borderColor: C.lineMid }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+              <Sparkles size={13} color={C.violet} strokeWidth={2.2} />
+              <Text style={{ fontFamily: F.display, fontSize: 10.5, color: C.violet, letterSpacing: 1.6 }}>DAILY STEPS</Text>
+            </View>
+            <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim, marginBottom: 14, lineHeight: 18 }}>
+              Let Coach break a goal into small, day-by-day steps — knock them out one at a time.
+            </Text>
+
+            <Text style={subLabel}>WHICH GOAL?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {goals.map((g) => {
+                const color = CATEGORY_COLORS[g.category] || C.amber
+                const on = genGoalId === g.id
+                return (
+                  <Pressable key={g.id} onPress={() => setGenGoalId(g.id)} style={{ borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8, backgroundColor: on ? color + '22' : 'transparent', borderWidth: 1, borderColor: on ? color : C.lineStrong }}>
+                    <Text style={{ fontFamily: on ? F.semibold : F.body, fontSize: 12, color: on ? color : C.dim }}>
+                      {g.title.length > 24 ? g.title.slice(0, 24) + '…' : g.title}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+
+            <Text style={subLabel}>HOW MANY DAYS?</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {[3, 5, 7].map((n) => (
+                <Chip key={n} label={`${n} days`} on={genDays === n} onPress={() => setGenDays(n)} />
+              ))}
+            </View>
+
+            {genError ? (
+              <Text style={{ fontFamily: F.medium, fontSize: 12, color: C.amber, marginTop: 12 }}>{genError}</Text>
+            ) : null}
+
+            <Pressable onPress={generateDaily} disabled={!genGoalId || generating} style={{ marginTop: 16 }}>
+              {genGoalId && !generating ? (
+                <LinearGradient colors={[C.amber, C.amberDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13 }}>
+                  <Sparkles size={16} color={C.amberInk} strokeWidth={2.6} />
+                  <Text style={{ fontFamily: F.bold, fontSize: 14, color: C.amberInk }}>Generate {genDays} daily steps</Text>
+                </LinearGradient>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: C.line }}>
+                  {generating ? (
+                    <>
+                      <ActivityIndicator size="small" color={C.violet} />
+                      <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.dim }}>Coach is planning your days…</Text>
+                    </>
+                  ) : (
+                    <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.faint2 }}>Pick a goal first</Text>
+                  )}
+                </View>
+              )}
+            </Pressable>
+          </View>
+        )}
 
         {/* Active */}
         <View style={{ paddingHorizontal: 24, marginTop: 24, gap: 12 }}>

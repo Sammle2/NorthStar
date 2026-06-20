@@ -342,6 +342,44 @@ export function regenerateMilestones(goalTitle, extra = '') {
   return buildMilestones(theme, actionableTitle(goalTitle), true)
 }
 
+const VALID_CATEGORIES = new Set(Object.keys(DOMAIN_TEMPLATES))
+
+// Turn a Claude-generated roadmap (loose JSON) into a goal in the app's exact
+// shape. Tolerant of missing/odd fields — anything unusable falls back to the
+// local template via buildGoal, so onboarding never breaks on a bad response.
+export function normalizeAiGoal(ai, rawGoal, extra = '', id = 'goal-primary') {
+  if (!ai || !Array.isArray(ai.milestones) || ai.milestones.length === 0) {
+    return buildGoal(rawGoal, extra, id)
+  }
+  const title = (ai.title && String(ai.title).trim()) || actionableTitle(rawGoal)
+  const category = VALID_CATEGORIES.has(ai.category)
+    ? ai.category
+    : primaryThemeOf(`${rawGoal} ${extra}`) || 'mindset'
+
+  // Keep the engine's id/horizon scheme so Roadmap renders identically.
+  const milestones = ai.milestones.slice(0, 3).map((m, i) => {
+    const steps = (Array.isArray(m.steps) ? m.steps : [])
+      .map((s) => (typeof s === 'string' ? s : s?.title))
+      .filter((t) => t && String(t).trim())
+    return {
+      id: `ms-${[3, 6, 12][i] || i + 1}`,
+      horizon: HORIZONS[i] || m.horizon || 'The summit',
+      title: (m.title && String(m.title).trim()) || `Milestone ${i + 1}`,
+      completed: false,
+      steps: mkSteps(steps.length ? steps : ['Take the first real step']),
+    }
+  })
+
+  const daily = (Array.isArray(ai.dailyActions) ? ai.dailyActions : [])
+    .map((a) => (typeof a === 'string' ? a : a?.title))
+    .filter((t) => t && String(t).trim())
+  const dailyActions = mkActions(
+    daily.length ? daily : ['Take one real step toward your goal', 'Remove one obstacle in your way', 'Reflect on what moved the needle'],
+  )
+
+  return { id, title, category, progress: 0, milestones, dailyActions }
+}
+
 const buildPrimaryGoal = (rawGoal, extra) => buildGoal(rawGoal, extra, 'goal-primary')
 
 export function generateGoals(rawGoal, answers, extra) {
