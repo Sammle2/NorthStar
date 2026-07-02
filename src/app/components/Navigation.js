@@ -9,7 +9,7 @@ const TABS = [
   { id: 'roadmap', icon: Map, label: 'Roadmap' },
   { id: 'sprints', icon: Target, label: 'Sprints' },
   { id: 'community', icon: Users, label: 'Friends' },
-  { id: 'coach', icon: MessageCircle, label: 'Coach' },
+  { id: 'coach', icon: MessageCircle, label: 'Nova' },
 ]
 const PAD = 16
 const DOT = 4

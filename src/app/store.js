@@ -11,7 +11,13 @@ export const EMPTY_STATE = { profile: null, dreamRevealSeen: false }
 export async function loadState() {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const state = JSON.parse(raw)
+      // Legacy rename: the assistant used to be "Coach" (the old hardcoded
+      // default); it's now "Nova". Custom names the user chose are left alone.
+      if (state?.profile && state.profile.coachName === 'Coach') state.profile.coachName = 'Nova'
+      return state
+    }
   } catch {}
   return EMPTY_STATE
 }
@@ -133,7 +139,7 @@ export const extendedProfileSchema = {
 
   // Existing fields
   name: '',
-  coachName: 'Coach',
+  coachName: 'Nova',
   coachTone: 'default',
   dreamDescription: '',
   dreamStory: '',

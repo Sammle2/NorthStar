@@ -350,6 +350,62 @@ Return ONLY this JSON, no prose, no code fences:
   return plan
 }
 
+// Break a sprint task into a short, ordered list of concrete step titles sized
+// to its time horizon (a few hours if it's due today, otherwise a handful of
+// days). Returns an array of step strings; the caller assigns the schedule.
+export async function generateSprintPlan({ title, horizonDays = 0, count = 4, tone = 'default' }) {
+  const isToday = horizonDays <= 0
+  const window = isToday
+    ? 'today, across the remaining hours'
+    : `over the next ${horizonDays} day${horizonDays === 1 ? '' : 's'}`
+  const each = isToday ? 'doable in 30–90 minutes' : 'doable in a single day'
+
+  const prompt = `You are Nova, a coach. Break this task into exactly ${count} small, concrete, ordered steps to finish it ${window}: "${title}".
+
+Each step:
+- starts with a verb and is specific to THIS task (no filler like "get started")
+- is ${each}
+- builds on the one before it; the final step completes the task.
+
+Return ONLY a JSON array of ${count} strings, e.g. ["Outline the intro", "Draft section 1", ...]. No prose, no code fences.`
+
+  const res = await callClaude(prompt, 900)
+  const arr = extractJson(res)
+  const steps = (Array.isArray(arr) ? arr : [])
+    .map((s) => (typeof s === 'string' ? s : s?.title))
+    .filter((t) => t && String(t).trim())
+  if (!steps.length) throw new Error('Invalid sprint plan')
+  return steps
+}
+
+// Judge whether the user's stated "most important goal" is real and workable
+// enough to build a roadmap around. Returns { ok, message } — when not ok,
+// `message` is Nova's warm re-ask for something more specific/attainable.
+export async function judgeGoal({ rawGoal, name = '', tone = 'default' }) {
+  const firstName = (name || '').split(' ')[0] || 'there'
+  const prompt = `You are Nova, ${firstName}'s coach. They were asked for the single most important goal they want to tackle first, and answered: "${rawGoal}".
+
+Decide if this is a REAL, workable goal — concrete and attainable enough to build a roadmap around.
+- NOT workable: gibberish/keysmash, jokes, empty or throwaway one-word non-answers, impossible/fantasy goals (be immortal, grow taller, time travel), or answers too vague to plan around on their own ("be happy", "be rich", "success", "everything").
+- Workable: anything concrete enough to act on, even if ambitious ("start a bakery", "get promoted to manager", "run a marathon", "save $20k", "learn Spanish").
+
+Coaching tone to use if you must ask again: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
+
+Return ONLY JSON:
+- If workable: {"ok": true}
+- If not: {"ok": false, "message": "<1-2 sentences, in the tone above, that name what they said and ask them for a more specific and obtainable goal — give a concrete example of what a real version might look like>"}`
+
+  try {
+    const res = await callClaude(prompt, 300)
+    const parsed = extractJson(res)
+    return { ok: parsed.ok !== false, message: parsed.message || '' }
+  } catch (e) {
+    // Fail open — never block onboarding on an API hiccup.
+    console.warn('[judgeGoal] failed, accepting goal:', e?.message)
+    return { ok: true, message: '' }
+  }
+}
+
 // Context-aware Coach reply — understands the user's tone preference, dream,
 // current goal, streak, and the recent conversation, and responds in character.
 export async function coachRespond({ profile, history = [], userText }) {
@@ -359,10 +415,10 @@ export async function coachRespond({ profile, history = [], userText }) {
   const primary = goals.find((g) => g.primary_goal) || goals[0]
   const recent = history
     .slice(-8)
-    .map((m) => `${m.from === 'coach' ? 'Coach' : firstName}: ${m.text}`)
+    .map((m) => `${m.from === 'coach' ? 'Nova' : firstName}: ${m.text}`)
     .join('\n')
 
-  const prompt = `You are ${firstName}'s personal life coach inside the NorthStar app. Respond to their latest message in character.
+  const prompt = `You are Nova, ${firstName}'s personal coach inside the NorthStar app. If they ask your name, it's Nova. Respond to their latest message in character.
 
 About ${firstName}:
 - Their dream: "${profile?.dreamDescription || profile?.primaryGoalRaw || 'building the life they want'}"
@@ -391,5 +447,7 @@ export default {
   suggestVisionBoardKeywords,
   generateDreamLifeStory,
   generateRoadmap,
+  generateSprintPlan,
+  judgeGoal,
   coachRespond,
 }

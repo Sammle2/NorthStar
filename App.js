@@ -276,7 +276,7 @@ export default function App() {
     avatarUrl: null,
     visibility: 'private',
     name: name || '',
-    coachName: 'Coach',
+    coachName: 'Nova',
     coachTone: 'default',
     dreamDescription: '',
     dreamStory: '',

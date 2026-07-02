@@ -26,7 +26,7 @@ import {
   normalizeAiGoal,
   validateGoal,
 } from '../aiEngine'
-import { generateDreamLifeStory, generateRoadmap } from '../../services/aiService'
+import { generateDreamLifeStory, generateRoadmap, judgeGoal } from '../../services/aiService'
 
 const TONES = [
   { id: 'tough', label: 'Tough Love', desc: 'No BS, high expectations', emoji: '💪' },
@@ -62,7 +62,7 @@ export default function Onboarding({ onComplete }) {
   const addUser = (text) => setMessages((p) => [...p, { id: nid(), from: 'user', text }])
 
   useEffect(() => {
-    addCoach(COACH_MESSAGES.default.welcome.replace('{coach}', 'Coach'), 800)
+    addCoach(COACH_MESSAGES.default.welcome.replace('{coach}', 'Nova'), 800)
   }, [])
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))
@@ -95,11 +95,25 @@ export default function Onboarding({ onComplete }) {
     if (!value) return
     setInput('')
     addUser(value)
+
+    // Fast local pre-filter — catches empty and obviously impossible answers.
     const check = validateGoal(value)
     if (!check.ok) {
       await addCoach(check.clarify, 900)
       return // stay on goal step for a better answer
     }
+
+    // AI gate: Nova judges whether it's a real, workable goal. Gibberish, jokes,
+    // and too-vague answers get a warm re-ask; we stay on this step until the
+    // goal is something we can actually build a roadmap around. Fails open.
+    setIsTyping(true)
+    const verdict = await judgeGoal({ rawGoal: value, name: data.current.name, tone: 'default' })
+    setIsTyping(false)
+    if (!verdict.ok) {
+      await addCoach(verdict.message || "Let's make that more concrete — what specifically do you want to achieve? Give me a real, reachable version.", 900)
+      return // loop: keep asking for a more obtainable goal
+    }
+
     data.current = { ...data.current, goal: value }
     setStep('tone')
     await addCoach('Got it — and that one we can build. Last thing: how do you want me to coach you?', 900)
@@ -155,7 +169,7 @@ export default function Onboarding({ onComplete }) {
         age,
         gender,
         coachTone: tone,
-        coachName: 'Coach',
+        coachName: 'Nova',
         dreamAnswers: answers,
         additionalInfo: extra,
         dreamDescription: extra,
@@ -191,7 +205,7 @@ export default function Onboarding({ onComplete }) {
         >
           <CoachAvatar size={42} />
           <View>
-            <Text style={{ fontFamily: F.display, fontSize: 13.5, color: C.ink, letterSpacing: 1.4 }}>COACH</Text>
+            <Text style={{ fontFamily: F.display, fontSize: 13.5, color: C.ink, letterSpacing: 1.4 }}>NOVA</Text>
             <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.green, marginTop: 2 }}>Online · Ready to begin</Text>
           </View>
         </View>

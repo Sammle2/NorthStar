@@ -96,7 +96,7 @@ export default function CoachChat({ profile, onUpdate }) {
             <CoachAvatar size={46} />
             <View>
               <Text style={{ fontFamily: F.display, fontSize: 14.5, color: C.ink, letterSpacing: 1.4 }}>
-              {(profile.coachName || 'Coach').toUpperCase()}
+              {(profile.coachName || 'Nova').toUpperCase()}
             </Text>
               <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.green, marginTop: 2 }}>
                 {TONE_LABELS[profile.coachTone]} mode · Always here

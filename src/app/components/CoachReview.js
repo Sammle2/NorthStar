@@ -44,7 +44,7 @@ export default function CoachReview({ profile, onComplete }) {
           <CoachAvatar size={46} />
           <View>
             <Text style={{ fontFamily: F.display, fontSize: 14.5, color: C.ink, letterSpacing: 1.4 }}>
-              {(profile.coachName || 'Coach').toUpperCase()}
+              {(profile.coachName || 'Nova').toUpperCase()}
             </Text>
             <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.amber, marginTop: 2 }}>25-day check-in</Text>
           </View>

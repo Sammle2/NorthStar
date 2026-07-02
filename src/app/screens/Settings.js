@@ -19,7 +19,7 @@ const TONES = [
 // edit your own name, manage API keys, or start over. Full-screen overlay.
 export default function Settings({ profile, onUpdate, onClose, onReset, onSignOut, onDeleteAccount, isSyncing, lastSyncAt, syncError, awaitingConfirmation }) {
   const [name, setName] = useState(profile.name)
-  const [coachName, setCoachName] = useState(profile.coachName || 'Coach')
+  const [coachName, setCoachName] = useState(profile.coachName || 'Nova')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
@@ -43,7 +43,7 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
   // Coach name persists live (no transform), so it propagates immediately.
   const changeCoach = (t) => {
     setCoachName(t)
-    onUpdate({ ...profile, coachName: t.trim() || 'Coach' })
+    onUpdate({ ...profile, coachName: t.trim() || 'Nova' })
   }
   const setTone = (id) => onUpdate({ ...profile, coachTone: id })
 
@@ -62,7 +62,7 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 }}>
           <CoachAvatar size={48} />
           <View>
-            <Text style={{ fontFamily: F.display, fontSize: 15, color: C.ink, letterSpacing: 1.2 }}>{(coachName || 'Coach').toUpperCase()}</Text>
+            <Text style={{ fontFamily: F.display, fontSize: 15, color: C.ink, letterSpacing: 1.2 }}>{(coachName || 'Nova').toUpperCase()}</Text>
             <Text style={{ fontFamily: F.body, fontSize: 12, color: C.green, marginTop: 2 }}>
               {(TONES.find((t) => t.id === profile.coachTone) || TONES[1]).label} mode
             </Text>
