@@ -10,6 +10,11 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
+# Supabase CLI local artifacts
+supabase/.temp/
+supabase/.branches/
+deno.lock
+
 # native / secrets
 *.jks
 *.p8
