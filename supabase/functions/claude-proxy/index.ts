@@ -1,56 +1,65 @@
-// claude-proxy — server-side proxy for the Anthropic API.
+// claude-proxy — hardened server-side proxy for the Anthropic API.
 //
-// WHY: shipping the Anthropic key in the app bundle (EXPO_PUBLIC_ANTHROPIC_API_KEY)
-// lets anyone extract it and drain the account's credits. This function keeps the
-// key on the server. verify_jwt is on, so only signed-in NorthStar users can call it.
+// WHY: shipping the Anthropic key in the app bundle lets anyone extract it and
+// drain the account's credits. This function keeps the key on the server AND
+// (via _shared/guard) only lets REAL signed-in NorthStar users through — the
+// public/anon key alone is not enough. It also rate-limits per user and bounds
+// the cost of each call (model allowlist + input/output caps).
 //
-// ACTIVATION (one-time): set the secret in Supabase, then the app's AI features work:
+// ACTIVATION (one-time):
 //   supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref wsgbnhiklczfiapqrnnf
-// (or Dashboard → Project Settings → Edge Functions → Secrets)
+//   supabase db push                 # creates the bump_ai_usage rate limiter
+//   supabase functions deploy claude-proxy
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+import { corsHeaders, jsonResponse, requireUser } from "../_shared/guard.ts"
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-}
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { ...cors, "content-type": "application/json" } })
+// Only models the app actually uses may be requested — no arbitrary/expensive picks.
+const ALLOWED_MODELS = new Set(["claude-sonnet-4-6", "claude-haiku-4-5-20251001"])
+const DEFAULT_MODEL = "claude-sonnet-4-6"
+const MAX_INPUT_CHARS = 24_000 // ~6k tokens of input; blocks oversized prompts
+const MAX_OUTPUT_TOKENS = 4096
+const RATE_LIMIT_PER_HOUR = 60
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405)
-
+  const origin = req.headers.get("origin")
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(origin) })
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405, origin)
   if (!ANTHROPIC_API_KEY) {
-    return json({ error: "Server not configured: ANTHROPIC_API_KEY secret is not set." }, 503)
+    return jsonResponse({ error: "Server not configured: ANTHROPIC_API_KEY secret is not set." }, 503, origin)
   }
+
+  // Auth + rate limit. Returns a ready-made response on any failure.
+  const gate = await requireUser(req, origin, RATE_LIMIT_PER_HOUR)
+  if ("response" in gate) return gate.response
 
   let payload: Record<string, unknown>
   try {
     payload = await req.json()
   } catch {
-    return json({ error: "Invalid JSON body" }, 400)
+    return jsonResponse({ error: "Invalid JSON body" }, 400, origin)
   }
 
-  const {
-    prompt,
-    messages,
-    system,
-    model = "claude-sonnet-4-6",
-    max_tokens = 1024,
-  } = payload as {
+  const { prompt, messages, system } = payload as {
     prompt?: string
     messages?: unknown[]
     system?: string
-    model?: string
-    max_tokens?: number
   }
 
-  // Clamp to keep a leaked/abused session from running up huge bills.
-  const cappedTokens = Math.min(Math.max(Number(max_tokens) || 1024, 1), 4096)
+  // Model allowlist — fall back to the default for anything not permitted.
+  const requested = String((payload as { model?: string }).model || DEFAULT_MODEL)
+  const model = ALLOWED_MODELS.has(requested) ? requested : DEFAULT_MODEL
+
+  // Input-size cap (input tokens are billed too).
+  const inputStr = JSON.stringify(messages ?? prompt ?? "")
+  if (inputStr.length > MAX_INPUT_CHARS) return jsonResponse({ error: "Request too large" }, 413, origin)
+
+  // Output cap.
+  const cappedTokens = Math.min(
+    Math.max(Number((payload as { max_tokens?: number }).max_tokens) || 1024, 1),
+    MAX_OUTPUT_TOKENS,
+  )
 
   const body: Record<string, unknown> = {
     model,
@@ -72,8 +81,8 @@ Deno.serve(async (req) => {
       body: JSON.stringify(body),
     })
     const data = await r.json()
-    return json(data, r.status)
+    return jsonResponse(data, r.status, origin)
   } catch (e) {
-    return json({ error: `Upstream request failed: ${(e as Error)?.message || e}` }, 502)
+    return jsonResponse({ error: `Upstream request failed: ${(e as Error)?.message || e}` }, 502, origin)
   }
 })

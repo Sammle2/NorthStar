@@ -1,0 +1,13 @@
+project_id = "wsgbnhiklczfiapqrnnf"
+
+# Reject unauthenticated calls at the edge (defense-in-depth). The functions ALSO
+# verify a real user in-code (see _shared/guard.ts), which is what actually blocks
+# the public/anon key — verify_jwt alone accepts any validly-signed token.
+[functions.claude-proxy]
+verify_jwt = true
+
+[functions.openai-image-proxy]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
