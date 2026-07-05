@@ -43,6 +43,7 @@ import Navigation from './src/app/components/Navigation'
 import CoachReview from './src/app/components/CoachReview'
 import GoalEditor from './src/app/components/GoalEditor'
 import ErrorBoundary from './src/app/components/ErrorBoundary'
+import StarField from './src/app/components/StarField'
 import { onAuthStateChange, signOut as supabaseSignOut, signUpWithEmail } from './src/services/supabaseAuth'
 
 // On web, kill the default focus outline / tap-highlight (the "black box" that
@@ -414,9 +415,21 @@ export default function App() {
   const p = appState.profile
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
+    <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', overflow: 'hidden' }}>
       <StatusBar style="light" />
 
+      {/* Starfield fills the whole window; the opaque phone frame covers the
+          middle, so on wide / fullscreen browsers the stars show through the
+          side gutters instead of flat empty space. */}
+      <StarField count={220} seed={5} maxTop={100} />
+
+      {/* Phone-width frame. On web the width is FIXED (375 = iPhone width) so the
+          tab never shrinks or grows — narrowing the window only eats the star
+          gutters on either side, and the tab keeps its exact dimensions. Kept a
+          touch under a typical viewport so there's always a little gutter buffer
+          and edge icons never clip. flex:1 keeps it full-height. Native stays
+          fluid (width capped at 430) so real phones fill the screen. */}
+      <View style={{ flex: 1, backgroundColor: C.bg, ...(Platform.OS === 'web' ? { width: 375 } : { width: '100%', maxWidth: 430 }) }}>
       <ErrorBoundary key={`root-${boundaryKey}`} onReset={() => setBoundaryKey((k) => k + 1)}>
       {screen === 'welcome' && <Welcome onBegin={handleBegin} onSignIn={() => { setAuthSubScreen('signin'); setScreen('auth') }} />}
 
@@ -479,6 +492,7 @@ export default function App() {
         </View>
       )}
       </ErrorBoundary>
+      </View>
     </View>
   )
 }
