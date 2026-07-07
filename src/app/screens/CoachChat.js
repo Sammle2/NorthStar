@@ -14,8 +14,8 @@ import { Send, Settings } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import { MessageBubble, TypingDots } from '../components/ChatBits'
-import { COACH_MESSAGES, coachReply } from '../aiEngine'
-import { coachRespond, applyGoalAction, distillCoachMemory } from '../../services/aiService'
+import { COACH_MESSAGES, coachReply, actionableTitle, normalizeAiGoal } from '../aiEngine'
+import { coachRespond, applyGoalAction, distillCoachMemory, generateRoadmap } from '../../services/aiService'
 import { nowTime } from '../store'
 
 const TONE_LABELS = { tough: 'Tough Love', gentle: 'Supportive', default: 'Balanced' }
@@ -95,7 +95,30 @@ export default function CoachChat({ profile, onUpdate }) {
       const nextGoals = action ? applyGoalAction(prof.goals, action) : null
       return { ...prof, ...(nextGoals ? { goals: nextGoals } : {}), coachHistory: withReply.slice(-60) }
     })
+    // A chat-added goal starts as an instant local template; upgrade it in the
+    // background to a Nova-built roadmap specific to that goal.
+    if (action?.type === 'add' && action.title) upgradeAddedGoal(String(action.title))
     maybeDistill(withReply)
+  }
+
+  // Replace a freshly-added goal's template milestones with an AI roadmap built
+  // from the goal itself (specific, timeline-coherent). Fire-and-forget: on any
+  // failure the local template simply stays. Never touches a goal the user has
+  // already deleted or started working on.
+  const upgradeAddedGoal = async (rawTitle) => {
+    try {
+      const prof = profileRef.current
+      const ai = await generateRoadmap({ name: prof.name, rawGoal: rawTitle, tone: prof.coachTone })
+      onUpdate((p) => {
+        const wanted = actionableTitle(rawTitle)
+        const target = (p.goals || []).find((g) => g.title === wanted && (g.progress || 0) === 0)
+        if (!target) return p
+        const upgraded = normalizeAiGoal(ai, rawTitle, '', target.id)
+        return { ...p, goals: p.goals.map((g) => (g.id === target.id ? upgraded : g)) }
+      })
+    } catch (e) {
+      console.warn('[Coach] AI roadmap upgrade failed, keeping local template:', e?.message)
+    }
   }
 
   // Long-term memory: every few user turns, distill the conversation into durable

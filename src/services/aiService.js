@@ -287,22 +287,27 @@ export async function generateRoadmap({ name, rawGoal, extra = '', tone = 'defau
 Their goal, in their own words: "${dream || rawGoal}"
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
-Build a roadmap with THREE milestones at 3 months, 6 months, and 12 months. Each milestone has exactly THREE stepping stones — the smaller actions that get them there.
+Build a roadmap with THREE milestones. Default horizons are 3 months, 6 months, and 12 months — but if THEIR goal states its own deadline ("in 6 months", "by June", "this year"), scale the three checkpoints to fit THAT deadline instead (e.g. "6 weeks" / "3 months" / "6 months") so the final milestone lands exactly when they said. Each milestone has exactly THREE stepping stones — the smaller actions that get them there.
 
-Make EVERYTHING specific and actionable, grounded in THIS person's actual goal — never generic filler:
-- Milestone titles describe a concrete, verifiable outcome for that horizon (something you could point at and say "done"). Prefer measurable targets where it makes sense (a number, a shipped thing, a habit held for N days).
-- Each stepping stone starts with a verb and is something they could realistically finish in a few days to two weeks.
-- Order the milestones and stones so each one builds on the last.
-- "dailyActions" are 3 small things they can do most days to keep momentum.
+TIMELINE RULES — the plan must make sense as a schedule, not just a list:
+- The three milestones are a progression: the first builds the foundation, the second is measurable proof of being roughly halfway, and the FINAL milestone IS the goal achieved — its title states the goal's success condition, verifiably done.
+- Every milestone must be realistically reachable within its horizon by a busy person starting from today. Too easy wastes the horizon; too hard makes the plan fiction. ("Run a marathon" in 3 months from zero is fiction; a 10K is a foundation.)
+- When the goal has a number (money, distance, weight, pages, customers, revenue), give each milestone a concrete sub-target that progresses sensibly toward the total — early milestones can be smaller while habits form; they must add up to the goal.
+- Each stepping stone is finishable in a few days to two weeks, and all three of a milestone's stones must comfortably fit inside that milestone's window, in order.
+
+SPECIFICITY TEST: if a milestone or stepping stone would fit a DIFFERENT goal without changes ("build the habit", "do more research", "stay consistent"), it is too generic — rewrite it with the concrete noun, number, or artifact from THIS goal.
+- Milestone titles describe a concrete, verifiable outcome (something you could point at and say "done").
+- Each stepping stone starts with a verb and names the specific thing to produce, book, buy, contact, or complete.
+- "dailyActions" are 3 small things they can do most days to keep momentum, phrased for THIS goal.
 
 Return ONLY this JSON, no prose, no code fences:
 {
   "title": "<short actionable goal title, Title Case, no leading 'I want to'>",
   "category": "<one of: ${GOAL_CATEGORIES.join(', ')}>",
   "milestones": [
-    { "horizon": "3 months", "title": "<specific outcome>", "steps": ["<verb-first action>", "<action>", "<action>"] },
-    { "horizon": "6 months", "title": "<specific outcome>", "steps": ["<action>", "<action>", "<action>"] },
-    { "horizon": "12 months", "title": "<specific outcome>", "steps": ["<action>", "<action>", "<action>"] }
+    { "horizon": "<first checkpoint, e.g. 3 months>", "title": "<specific outcome>", "steps": ["<verb-first action>", "<action>", "<action>"] },
+    { "horizon": "<second checkpoint, e.g. 6 months>", "title": "<specific outcome>", "steps": ["<action>", "<action>", "<action>"] },
+    { "horizon": "<final checkpoint, e.g. 12 months>", "title": "<the goal achieved, verifiable>", "steps": ["<action>", "<action>", "<action>"] }
   ],
   "dailyActions": ["<small daily action>", "<small daily action>", "<small daily action>"]
 }`

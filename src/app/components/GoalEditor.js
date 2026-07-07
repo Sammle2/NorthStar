@@ -4,7 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { AlertTriangle, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
-import { recomputeGoal, regenerateMilestones } from '../aiEngine'
+import { recomputeGoal, regenerateMilestones, normalizeAiGoal } from '../aiEngine'
+import { generateRoadmap } from '../../services/aiService'
 import { validateGoalAgainstDream } from '../../services/roadmapValidation'
 
 // The ONLY place the roadmap is editable. Redo the whole goal: edit its three
@@ -35,9 +36,23 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
     setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: m.steps.map((s, j) => (j === si ? { ...s, title: text } : s)) } : m)))
   const addStep = (mi) => setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: [...m.steps, { id: ns(), title: '', completed: false }] } : m)))
   const removeStep = (mi, si) => setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: m.steps.filter((_, j) => j !== si) } : m)))
-  const regenerate = () => {
-    setMilestones(regenerateMilestones(title).map((m) => ({ ...m, steps: m.steps.map((s) => ({ ...s })) })))
-    setUpTo(-1)
+  const [drafting, setDrafting] = useState(false)
+  // "Draft for me" — Nova builds milestones specific to THIS goal title (with
+  // timeline-coherent checkpoints); the local template is only the offline fallback.
+  const regenerate = async () => {
+    if (drafting) return
+    setDrafting(true)
+    try {
+      const ai = await generateRoadmap({ name: '', rawGoal: title })
+      const draft = normalizeAiGoal(ai, title, '', goal.id)
+      setMilestones(draft.milestones.map((m) => ({ ...m, steps: m.steps.map((s) => ({ ...s })) })))
+    } catch (e) {
+      console.warn('[GoalEditor] AI draft failed, using local template:', e?.message)
+      setMilestones(regenerateMilestones(title).map((m) => ({ ...m, steps: m.steps.map((s) => ({ ...s })) })))
+    } finally {
+      setDrafting(false)
+      setUpTo(-1)
+    }
   }
 
   const buildGoal = () => {
@@ -92,9 +107,9 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
           {/* Regenerate */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 4 }}>
             <Text style={[sectionLabel, { marginBottom: 0 }]}>MILESTONES & STEPPING STONES</Text>
-            <Pressable onPress={regenerate} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }}>
-              <Sparkles size={12} color={C.violet} strokeWidth={2.2} />
-              <Text style={{ fontFamily: F.semibold, fontSize: 11.5, color: C.violet }}>Draft for me</Text>
+            <Pressable onPress={regenerate} disabled={drafting} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong, opacity: drafting ? 0.7 : 1 }}>
+              {drafting ? <ActivityIndicator size={12} color={C.violet} /> : <Sparkles size={12} color={C.violet} strokeWidth={2.2} />}
+              <Text style={{ fontFamily: F.semibold, fontSize: 11.5, color: C.violet }}>{drafting ? 'Nova is drafting…' : 'Draft for me'}</Text>
             </Pressable>
           </View>
           <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginBottom: 12 }}>
@@ -149,7 +164,7 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
           <Pressable onPress={save} disabled={checking} style={{ marginTop: 24 }}>
             <LinearGradient colors={[C.amber, C.amberDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 14, paddingVertical: 15, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
               {checking && <ActivityIndicator size="small" color={C.amberInk} />}
-              <Text style={{ fontFamily: F.bold, fontSize: 15, color: C.amberInk }}>{checking ? 'Checking with your Coach…' : 'Save roadmap'}</Text>
+              <Text style={{ fontFamily: F.bold, fontSize: 15, color: C.amberInk }}>{checking ? 'Checking with Nova…' : 'Save roadmap'}</Text>
             </LinearGradient>
           </Pressable>
         </ScrollView>

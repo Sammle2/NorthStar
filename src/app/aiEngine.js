@@ -434,7 +434,9 @@ export function normalizeAiGoal(ai, rawGoal, extra = '', id = 'goal-primary') {
       .filter((t) => t && String(t).trim())
     return {
       id: `ms-${[3, 6, 12][i] || i + 1}`,
-      horizon: HORIZONS[i] || m.horizon || 'The summit',
+      // Prefer the AI's horizon label — it adapts to the user's own deadline
+      // ("6 weeks" for a 6-month goal). Fall back to the engine's 3/6/12 scheme.
+      horizon: (m.horizon && String(m.horizon).trim()) || HORIZONS[i] || 'The summit',
       title: (m.title && String(m.title).trim()) || `Milestone ${i + 1}`,
       completed: false,
       steps: mkSteps(steps.length ? steps : ['Take the first real step']),
