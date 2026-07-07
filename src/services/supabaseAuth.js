@@ -50,18 +50,32 @@ export async function getSession() {
   }
 }
 
-// Email/Password Sign Up. New accounts are auto-confirmed (DB trigger), so if
-// signUp doesn't return a session we immediately sign in to establish one —
-// friends go straight into the app, no email round-trip.
-export async function signUpWithEmail(email, password) {
+// Email/Password Sign Up. While the project auto-confirms (DB trigger), signUp
+// returns no session, so we immediately sign in to establish one. Once "Confirm
+// email" is enforced server-side that sign-in fails with "Email not confirmed" —
+// expected — and callers get { needsConfirmation: true } to show the check-your-
+// email step. The confirmation link redirects to confirm-email (northstar:// on
+// native, <origin>/confirm-email on web).
+export async function signUpWithEmail(email, password, metadata = {}) {
   const normalizedEmail = (email || '').trim().toLowerCase()
   try {
     console.log('[Auth] Signing up:', normalizedEmail)
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
       password,
+      options: {
+        emailRedirectTo: Linking.createURL('confirm-email'),
+        data: metadata, // e.g. { username, name } — lands in user_metadata
+      },
     })
     if (error) throw error
+
+    // Confirm-email mode returns an OBFUSCATED user (no session, empty identities)
+    // when the email is ALREADY registered — anti-enumeration. Don't bind a profile
+    // to that ghost id; treat it as "already registered".
+    if (data.user && !data.session && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return { user: null, session: null, needsConfirmation: false, error: 'That email is already registered — sign in instead.' }
+    }
 
     let session = data.session
     let user = data.user
@@ -72,11 +86,59 @@ export async function signUpWithEmail(email, password) {
         user = si.user
       }
     }
-    console.log('[Auth] Sign up OK:', user?.email, session ? '(session)' : '(no session)')
-    return { user, session, error: null }
+    console.log('[Auth] Sign up OK:', user?.email, session ? '(session)' : '(no session — confirmation pending)')
+    return { user, session, needsConfirmation: !!user && !session, error: null }
   } catch (error) {
     console.error('[Auth] Sign up failed:', error?.message)
-    return { user: null, session: null, error: error?.message || 'Sign up failed' }
+    return { user: null, session: null, needsConfirmation: false, error: error?.message || 'Sign up failed' }
+  }
+}
+
+// Re-send the signup confirmation email (rate-limited by Supabase — surface
+// errors instead of retrying).
+export async function resendConfirmation(email) {
+  const normalizedEmail = (email || '').trim().toLowerCase()
+  try {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: normalizedEmail,
+      options: { emailRedirectTo: Linking.createURL('confirm-email') },
+    })
+    if (error) throw error
+    return { error: null }
+  } catch (error) {
+    console.error('[Auth] Resend confirmation failed:', error?.message)
+    return { error: error?.message || 'Could not resend the email' }
+  }
+}
+
+// Establish a session from a confirmation/magic-link URL (native only — on web
+// supabase-js auto-detects tokens in the URL). Parses access/refresh tokens from
+// the link's fragment or query and calls setSession.
+export async function establishSessionFromUrl(url) {
+  try {
+    const query = url.includes('?') ? url.split('?')[1].split('#')[0] : ''
+    const hash = url.includes('#') ? url.split('#')[1] : ''
+
+    // PKCE flow: the link carries ?code=… — exchange it for a session.
+    const code = new URLSearchParams(query).get('code')
+    if (code) {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+      if (error) throw error
+      return { session: data.session, error: null }
+    }
+
+    // Implicit flow: tokens arrive in the # fragment (or query).
+    const params = new URLSearchParams(hash || query)
+    const access_token = params.get('access_token')
+    const refresh_token = params.get('refresh_token')
+    if (!access_token || !refresh_token) return { session: null, error: null } // not a token link
+    const { data, error } = await supabase.auth.setSession({ access_token, refresh_token })
+    if (error) throw error
+    return { session: data.session, error: null }
+  } catch (error) {
+    console.error('[Auth] establishSessionFromUrl failed:', error?.message)
+    return { session: null, error: error?.message || 'Could not establish session' }
   }
 }
 
@@ -235,6 +297,8 @@ export default {
   getCurrentUser,
   getSession,
   signUpWithEmail,
+  resendConfirmation,
+  establishSessionFromUrl,
   signInWithEmail,
   signInWithApple,
   signInWithGoogle,

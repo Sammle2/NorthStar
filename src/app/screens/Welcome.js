@@ -9,11 +9,15 @@ import Wordmark from '../components/Wordmark'
 
 // Screen 1 — cinematic starfield hero: badge → NORTHSTAR wordmark → tagline → amber CTA.
 export default function Welcome({ onBegin, onSignIn }) {
-  // Read live viewport from the hook (module-level Dimensions can be 0 on a fresh
-  // web/mobile load, which clipped the wordmark). Fallbacks keep it sane pre-layout.
+  // Size everything to the ACTUAL container, not the window: on web the app lives
+  // in a fixed 375px phone frame while the browser window can be much wider —
+  // sizing the wordmark from the window clipped it on large screens (and pushed
+  // the background glows out of frame). onLayout gives the real box; the hook
+  // (clamped to the frame's max width) covers the first pre-layout render.
   const win = useWindowDimensions()
-  const SW = win.width || 390
-  const SH = win.height || 800
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  const SW = box.w || Math.min(win.width || 390, 430)
+  const SH = box.h || win.height || 800
 
   const [starting, setStarting] = useState(false)
   const begin = async () => {
@@ -37,7 +41,10 @@ export default function Welcome({ onBegin, onSignIn }) {
   const wmSize = Math.min(wmWidth / 7.8, 52)
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+    <View
+      style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+      onLayout={(e) => setBox({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+    >
       <StarField count={140} seed={11} />
       <Glow size={600} color="#7c3aed" opacity={0.18} style={{ top: SH * 0.5 - 360, left: SW / 2 - 300 }} />
       <Glow size={400} color="#f59e0b" opacity={0.12} style={{ bottom: SH * 0.06, right: -60 }} />

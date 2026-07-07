@@ -115,7 +115,7 @@ export default function EditProfile({ profile, onUpdate, onClose }) {
           {/* Visibility */}
           <Text style={[sectionLabel, { marginTop: 6 }]}>WHO CAN SEE YOUR PROFILE</Text>
           <View style={{ gap: 10, marginBottom: 24 }}>
-            <VisOption icon={Lock} active={visibility === 'private'} title="Private" desc="Only friends you accept can see your dream, streak, and goals." onPress={() => setVisibility('private')} />
+            <VisOption icon={Lock} active={visibility === 'private'} title="Private" desc="Only friends you accept can see your dream, streak, and goals. Posts you send to Public still show your name." onPress={() => setVisibility('private')} />
             <VisOption icon={Globe} active={visibility === 'public'} title="Public" desc="Anyone on NorthStar can see your profile and find you." onPress={() => setVisibility('public')} />
           </View>
 

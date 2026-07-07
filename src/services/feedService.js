@@ -1,10 +1,15 @@
-// Feed service — posts + likes. Posts are gated by author privacy (RLS): you see
-// public authors, yourself, and accepted friends. "My Friends" filters to friends;
-// "Public" filters to public authors.
+// Feed service — posts + likes. Each post carries an AUDIENCE chosen at send time:
+// 'public' (visible to everyone) or 'friends' (author + accepted friends only),
+// enforced server-side by RLS. "My Friends" shows friends' posts (both audiences —
+// you're their friend); "Public" shows audience='public' posts from anyone.
 import { getSupabaseClient } from './supabaseAuth'
 
 const AUTHOR = 'author:profiles!inner(id,username,full_name,avatar_url,visibility,streak,current_goal)'
 const SELECT = `id,user_id,content,created_at,${AUTHOR},likes:post_likes(user_id)`
+
+// True when the error is "column posts.audience does not exist" — the audience
+// migration hasn't been applied yet, so we fall back to the legacy behavior.
+const audienceColumnMissing = (e) => e?.code === '42703' || /audience.*does not exist|does not exist.*audience/i.test(e?.message || '')
 
 function shape(rows, myId) {
   return (rows || []).map((p) => ({
@@ -18,11 +23,15 @@ function shape(rows, myId) {
   }))
 }
 
-export async function createPost(content) {
+export async function createPost(content, audience = 'public') {
   try {
     const supabase = getSupabaseClient()
     const { data: { user } } = await supabase.auth.getUser()
-    const { error } = await supabase.from('posts').insert({ user_id: user.id, content: content.trim() })
+    let { error } = await supabase.from('posts').insert({ user_id: user.id, content: content.trim(), audience })
+    if (error && audienceColumnMissing(error)) {
+      // Pre-migration fallback: post without the audience column (legacy behavior).
+      ;({ error } = await supabase.from('posts').insert({ user_id: user.id, content: content.trim() }))
+    }
     if (error) throw error
     return { error: null }
   } catch (e) {
@@ -50,19 +59,35 @@ export async function getFriendsFeed(ids, myId) {
   }
 }
 
-// Public feed — posts from public accounts (anyone). Proximity ranking is a
-// follow-up (needs device location); for now, most recent first.
+// Public feed — every post SENT to Public, from anyone on the app (the author
+// chose that audience at send time). Proximity ranking is a follow-up (needs
+// device location); for now, most recent first. Pre-migration fallback: the old
+// author-profile-visibility filter.
 export async function getPublicFeed(myId) {
+  const supabase = getSupabaseClient()
   try {
-    const supabase = getSupabaseClient()
     const { data, error } = await supabase
       .from('posts').select(SELECT)
-      .eq('author.visibility', 'public')
+      .eq('audience', 'public')
       .order('created_at', { ascending: false })
       .limit(50)
     if (error) throw error
     return shape(data, myId)
   } catch (e) {
+    if (audienceColumnMissing(e)) {
+      try {
+        const { data, error } = await supabase
+          .from('posts').select(SELECT)
+          .eq('author.visibility', 'public')
+          .order('created_at', { ascending: false })
+          .limit(50)
+        if (error) throw error
+        return shape(data, myId)
+      } catch (e2) {
+        console.warn('[Feed] getPublicFeed (legacy) failed:', e2?.message)
+        return []
+      }
+    }
     console.warn('[Feed] getPublicFeed failed:', e?.message)
     return []
   }

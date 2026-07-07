@@ -4,6 +4,7 @@
 // authenticated with the signed-in user's Supabase JWT.
 import { getSession } from './supabaseAuth'
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabaseAuth'
+import { buildGoal } from '../app/aiEngine'
 
 const CLAUDE_PROXY_URL = `${SUPABASE_URL}/functions/v1/claude-proxy`
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
@@ -227,40 +228,6 @@ Start with easier actions and gradually increase difficulty. Return ONLY the JSO
   }
 }
 
-// Generate vision board keywords from a goal
-export async function suggestVisionBoardKeywords(goalTitle, goalDescription, numberOfKeywords = 5) {
-  const prompt = `For the goal: "${goalTitle}"
-Description: "${goalDescription}"
-
-Suggest ${numberOfKeywords} visual keywords or phrases that represent success, progress, or the achievement of this goal. These will be used to generate inspirational images.
-
-Keywords should be:
-- Visual and evocative
-- Specific enough to generate good images
-- Representing different aspects of the goal
-- Easy to visualize
-
-Format as JSON array of objects with:
-- keyword: The keyword or phrase
-- description: Brief context for image generation
-
-Return ONLY the JSON array.`
-
-  try {
-    const response = await callClaude(prompt)
-    const keywords = extractJson(response)
-
-    if (!Array.isArray(keywords) || keywords.length === 0) {
-      throw new Error('Invalid keywords format')
-    }
-
-    return keywords
-  } catch (error) {
-    console.error('Failed to generate vision board keywords:', error?.message)
-    throw new Error(error?.message || 'Could not generate keywords. Try again.')
-  }
-}
-
 const TONE_DESCRIPTIONS = {
   tough: 'Direct, no-nonsense, demanding but caring — high expectations, zero fluff.',
   default: 'Balanced, honest, encouraging, and practical.',
@@ -381,13 +348,19 @@ Return ONLY a JSON array of ${count} strings, e.g. ["Outline the intro", "Draft 
 // Judge whether the user's stated "most important goal" is real and workable
 // enough to build a roadmap around. Returns { ok, message } — when not ok,
 // `message` is Nova's warm re-ask for something more specific/attainable.
-export async function judgeGoal({ rawGoal, name = '', tone = 'default' }) {
+// Attempt-aware: pass `attempt` (1-based) and previously `rejected` answers so the
+// judge holds the SAME bar on every retry instead of softening after the first no.
+export async function judgeGoal({ rawGoal, name = '', tone = 'default', attempt = 1, rejected = [] }) {
   const firstName = (name || '').split(' ')[0] || 'there'
-  const prompt = `You are Nova, ${firstName}'s coach. They were asked for the single most important goal they want to tackle first, and answered: "${rawGoal}".
+  const retryContext = rejected.length
+    ? `\nThis is attempt #${attempt}. Their earlier answers were ALREADY REJECTED as not workable: ${rejected.map((r) => `"${r}"`).join(', ')}. Do NOT lower the bar because they have tried before — if this answer is still gibberish, a joke, a trivial variation of a rejected answer, or too vague, reject it again. Persistence means holding the standard, not giving in.`
+    : ''
+  const prompt = `You are Nova, ${firstName}'s coach. They were asked for the single most important goal they want to tackle first, and answered: "${rawGoal}".${retryContext}
 
 Decide if this is a REAL, workable goal — concrete and attainable enough to build a roadmap around.
 - NOT workable: gibberish/keysmash, jokes, empty or throwaway one-word non-answers, impossible/fantasy goals (be immortal, grow taller, time travel), or answers too vague to plan around on their own ("be happy", "be rich", "success", "everything").
 - Workable: anything concrete enough to act on, even if ambitious ("start a bakery", "get promoted to manager", "run a marathon", "save $20k", "learn Spanish").
+- When you're genuinely unsure whether it's concrete enough to plan around, REJECT and ask for the specific version — never accept just to move on.
 
 Coaching tone to use if you must ask again: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
@@ -406,8 +379,34 @@ Return ONLY JSON:
   }
 }
 
+// Apply a goal-adjustment action from Nova to the goals array. Returns the new
+// goals array, or null when the action is a no-op / can't be applied. Exported so
+// the caller can apply it against the CURRENT goals at write time (not a snapshot).
+export function applyGoalAction(goals, action) {
+  const list = Array.isArray(goals) ? goals.slice() : []
+  if (!action || !action.type) return null
+  if (action.type === 'remove' && action.goalId) {
+    const next = list.filter((g) => g.id !== action.goalId)
+    return next.length !== list.length ? next : null
+  }
+  if (action.type === 'edit' && action.goalId && action.title) {
+    let changed = false
+    const next = list.map((g) => {
+      if (g.id === action.goalId) { changed = true; return { ...g, title: String(action.title).trim() } }
+      return g
+    })
+    return changed ? next : null
+  }
+  if (action.type === 'add' && action.title) {
+    return [...list, buildGoal(String(action.title))]
+  }
+  return null
+}
+
 // Context-aware Coach reply — understands the user's tone preference, dream,
-// current goal, streak, and the recent conversation, and responds in character.
+// current goals, streak, and the recent conversation, responds in character, and
+// (when they clearly ask) adjusts their goals. Returns { reply, action } — the
+// caller applies `action` against the current goals via applyGoalAction().
 export async function coachRespond({ profile, history = [], userText }) {
   const firstName = (profile?.name || '').split(' ')[0] || 'there'
   const tone = profile?.coachTone || 'default'
@@ -417,13 +416,18 @@ export async function coachRespond({ profile, history = [], userText }) {
     .slice(-8)
     .map((m) => `${m.from === 'coach' ? 'Nova' : firstName}: ${m.text}`)
     .join('\n')
+  const goalList = goals.length
+    ? goals.map((g) => `- id:${g.id} | "${g.title}"${g === primary ? ' (primary)' : ''}`).join('\n')
+    : '(no goals yet)'
 
-  const prompt = `You are Nova, ${firstName}'s personal coach inside the NorthStar app. If they ask your name, it's Nova. Respond to their latest message in character.
+  const prompt = `You are Nova, ${firstName}'s personal coach inside the NorthStar app. If they ask your name, it's Nova. Respond to their latest message in character, and — ONLY when they clearly ask — adjust their goals.
 
 About ${firstName}:
 - Their dream: "${profile?.dreamDescription || profile?.primaryGoalRaw || 'building the life they want'}"
-- Their main goal right now: "${primary?.title || 'getting started'}"
 - Current streak: ${profile?.streak || 0} days
+
+Their current goals:
+${goalList}
 
 Coaching tone you must embody: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
@@ -432,10 +436,31 @@ ${recent || '(this is the start of the conversation)'}
 
 ${firstName}'s latest message: "${userText}"
 
-Reply as the Coach: understand the intent and emotion behind their message, stay true to the tone above, connect it back to their dream/goal when relevant, and give one clear, motivating, actionable response. Keep it to 1-3 sentences. Return ONLY your reply — no name prefix, no quotes.`
+Decide if they are explicitly asking to change a goal — add a new one, rename/refocus an existing one, or drop one. Only act when the intent is unambiguous; otherwise just talk. When you do act, your reply should confirm the change warmly.
 
-  const text = await callClaude(prompt, 400)
-  return (text || '').trim()
+Return ONLY this JSON, no prose, no code fences:
+{
+  "reply": "<in-character reply, 1-3 sentences, no name prefix, no quotes>",
+  "action": { "type": "none|add|edit|remove", "goalId": "<existing id for edit/remove>", "title": "<new or updated goal title for add/edit>" }
+}`
+
+  const text = await callClaude(prompt, 500)
+
+  // Tolerant parse: if the model didn't emit JSON, treat the whole thing as the reply
+  // — UNLESS it looks like truncated/garbled JSON, in which case return reply:null so
+  // the caller's local fallback speaks instead of rendering raw braces to the user.
+  let parsed = null
+  try {
+    parsed = extractJson(text)
+  } catch (_) {
+    const t = (text || '').trim()
+    return { reply: /^[`{[]/.test(t) ? null : t, action: null }
+  }
+
+  const reply = (parsed?.reply || '').trim() || null
+  const raw = parsed?.action
+  const action = raw && raw.type && raw.type !== 'none' ? raw : null
+  return { reply, action }
 }
 
 export default {
@@ -444,7 +469,6 @@ export default {
   suggestMilestonesForGoal,
   suggestStepsForMilestone,
   generateDailyActionsForMilestone,
-  suggestVisionBoardKeywords,
   generateDreamLifeStory,
   generateRoadmap,
   generateSprintPlan,

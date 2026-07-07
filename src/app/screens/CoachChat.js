@@ -14,8 +14,8 @@ import { Send, Settings } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import { MessageBubble, TypingDots } from '../components/ChatBits'
-import { COACH_MESSAGES, PROACTIVE_MESSAGES, coachReply } from '../aiEngine'
-import { coachRespond } from '../../services/aiService'
+import { COACH_MESSAGES, coachReply } from '../aiEngine'
+import { coachRespond, applyGoalAction } from '../../services/aiService'
 import { nowTime } from '../store'
 
 const TONE_LABELS = { tough: 'Tough Love', gentle: 'Supportive', default: 'Balanced' }
@@ -31,17 +31,27 @@ export default function CoachChat({ profile, onUpdate }) {
   const [showToneMenu, setShowToneMenu] = useState(false)
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  const profileRef = useRef(profile)
+  profileRef.current = profile
+
   const [messages, setMessages] = useState(() => {
-    const proactive = PROACTIVE_MESSAGES[profile.coachTone]
-    const greeting = COACH_MESSAGES[profile.coachTone].checkIn
-      .replace('{streak}', String(profile.streak))
+    // NOVA remembers: resume the saved conversation if there is one…
+    const saved = profile.coachHistory
+    if (Array.isArray(saved) && saved.length) return saved
+    // …otherwise open with a SINGLE welcome text. No immediate quick check — that
+    // check-in now arrives as the daily 1pm notification instead.
+    const intro = (COACH_MESSAGES[profile.coachTone]?.intro || COACH_MESSAGES.default.intro)
       .replace('{name}', firstName)
-    return [
-      { id: '0', from: 'coach', text: greeting, time: nowTime() },
-      { id: '1', from: 'coach', text: proactive[Math.floor(Math.random() * proactive.length)], time: nowTime() },
-    ]
+    return [{ id: '0', from: 'coach', text: intro, time: nowTime() }]
   })
   const scrollRef = useRef(null)
+
+  // Persist the conversation onto the profile (capped) so NOVA's memory survives
+  // tab switches, reloads, and syncs to the cloud. Uses the functional updater so
+  // it MERGES onto the latest profile (never reverts a concurrent edit).
+  const persistHistory = (msgs) => {
+    onUpdate((prof) => ({ ...prof, coachHistory: msgs.slice(-60) }))
+  }
 
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))
@@ -49,30 +59,50 @@ export default function CoachChat({ profile, onUpdate }) {
 
   const send = async (textArg) => {
     const userText = (textArg ?? input).trim()
-    if (!userText) return
+    // Guard on isTyping: no overlapping sends while a reply is in flight. This keeps
+    // the message list single-threaded, so the snapshot arrays below can't drop a
+    // concurrently-added message.
+    if (!userText || isTyping) return
     setInput('')
     const history = messages // snapshot before adding the new turn (for AI context)
-    setMessages((p) => [...p, { id: nid(), from: 'user', text: userText, time: nowTime() }])
+    const withUser = [...messages, { id: nid(), from: 'user', text: userText, time: nowTime() }]
+    setMessages(withUser)
+    persistHistory(withUser)
     setIsTyping(true)
 
-    // Personalized reply from Claude (tone + dream + goal + streak aware), with a
-    // local fallback so the Coach always answers even offline / without a key.
+    // Personalized reply from Claude (tone + dream + goal + streak aware, and now
+    // able to adjust goals), with a local fallback so the Coach always answers even
+    // offline / without a key.
     let reply
+    let action = null
     try {
-      reply = await coachRespond({ profile, history, userText })
+      const res = await coachRespond({ profile: profileRef.current, history, userText })
+      reply = typeof res === 'string' ? res : res?.reply
+      // NOVA may return a goal adjustment (add / edit / remove) to apply.
+      action = (res && typeof res === 'object' && res.action) || null
     } catch (e) {
       console.warn('[Coach] AI reply failed, using local fallback:', e?.message)
     }
     if (!reply) reply = coachReply(profile.coachTone, userText)
 
     setIsTyping(false)
-    setMessages((p) => [...p, { id: nid(), from: 'coach', text: reply, time: nowTime() }])
+    const withReply = [...withUser, { id: nid(), from: 'coach', text: reply, time: nowTime() }]
+    setMessages(withReply)
+    // Merge over the CURRENT profile via the updater — this write may land after the
+    // user has switched tabs, so it must never revert edits made meanwhile. Any goal
+    // change is applied against the current goals, not the pre-send snapshot.
+    onUpdate((prof) => {
+      const nextGoals = action ? applyGoalAction(prof.goals, action) : null
+      return { ...prof, ...(nextGoals ? { goals: nextGoals } : {}), coachHistory: withReply.slice(-60) }
+    })
   }
 
   const changeTone = (tone) => {
+    if (isTyping) return
     setShowToneMenu(false)
-    onUpdate({ ...profile, coachTone: tone })
-    setMessages((p) => [...p, { id: nid(), from: 'coach', text: COACH_MESSAGES[tone].toneConfirm, time: nowTime() }])
+    const next = [...messages, { id: nid(), from: 'coach', text: COACH_MESSAGES[tone].toneConfirm, time: nowTime() }]
+    setMessages(next)
+    onUpdate((prof) => ({ ...prof, coachTone: tone, coachHistory: next.slice(-60) }))
   }
 
   return (
@@ -210,7 +240,7 @@ export default function CoachChat({ profile, onUpdate }) {
               value={input}
               onChangeText={setInput}
               onSubmitEditing={() => send()}
-              placeholder="Talk to your Coach..."
+              placeholder="Talk to Nova..."
               placeholderTextColor={C.faint2}
               returnKeyType="send"
               style={{
@@ -226,8 +256,8 @@ export default function CoachChat({ profile, onUpdate }) {
                 color: C.ink,
               }}
             />
-            <Pressable onPress={() => send()} disabled={!input.trim()}>
-              {input.trim() ? (
+            <Pressable onPress={() => send()} disabled={!input.trim() || isTyping}>
+              {input.trim() && !isTyping ? (
                 <LinearGradient
                   colors={[C.amber, C.amberDeep]}
                   start={{ x: 0, y: 0 }}

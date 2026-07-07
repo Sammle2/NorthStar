@@ -6,8 +6,5 @@ project_id = "wsgbnhiklczfiapqrnnf"
 [functions.claude-proxy]
 verify_jwt = true
 
-[functions.openai-image-proxy]
-verify_jwt = true
-
 [functions.delete-account]
 verify_jwt = true

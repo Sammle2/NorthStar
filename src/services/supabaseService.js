@@ -175,33 +175,6 @@ export const dailyActions = {
   },
 }
 
-// Vision Board Images CRUD
-export const visionBoardImages = {
-  async create(userId, keyword, imageUrl, prompt = '', goalId = null) {
-    const body = {
-      user_id: userId,
-      goal_id: goalId,
-      keyword,
-      image_url: imageUrl,
-      prompt,
-    }
-    return supabaseRequest('vision_board_images', 'POST', body)
-  },
-
-  async getByUserId(userId) {
-    return supabaseRequest('vision_board_images', 'GET', null, { user_id: userId })
-  },
-
-  async getByKeyword(userId, keyword) {
-    const res = await supabaseRequest('vision_board_images', 'GET')
-    return res.filter(img => img.user_id === userId && img.keyword === keyword)
-  },
-
-  async delete(imageId) {
-    return supabaseRequest(`vision_board_images?id=eq.${imageId}`, 'DELETE')
-  },
-}
-
 // Checkpoints CRUD
 export const checkpoints = {
   async create(goalId, milestoneId, completedSteps, totalSteps) {
@@ -233,7 +206,6 @@ export const userSettings = {
     const defaults = {
       user_id: userId,
       coach_tone: 'default',
-      vision_board_enabled: true,
       auto_generate_daily_actions: true,
       daily_action_count: 7,
     }
@@ -262,7 +234,6 @@ export default {
   milestones,
   steps,
   dailyActions,
-  visionBoardImages,
   checkpoints,
   userSettings,
 }
