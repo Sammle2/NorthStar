@@ -33,7 +33,9 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
 
   const editMsTitle = (mi, text) => setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, title: text } : m)))
   const editStep = (mi, si, text) =>
-    setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: m.steps.map((s, j) => (j === si ? { ...s, title: text } : s)) } : m)))
+    // Drop the stale short label when the user rewrites a step — the roadmap
+    // will re-derive one from the new text.
+    setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: m.steps.map((s, j) => (j === si ? { ...s, title: text, label: undefined } : s)) } : m)))
   const addStep = (mi) => setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: [...m.steps, { id: ns(), title: '', completed: false }] } : m)))
   const removeStep = (mi, si) => setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: m.steps.filter((_, j) => j !== si) } : m)))
   const [drafting, setDrafting] = useState(false)

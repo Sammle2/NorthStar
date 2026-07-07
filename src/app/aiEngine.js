@@ -296,8 +296,43 @@ const THEME_ROADMAP = {
 }
 
 const HORIZONS = ['3 months', '6 months', '12 months']
+
+// Compact 2-3 word name for a stepping stone, shown on the roadmap path (the
+// full title lives in the tap-to-expand dropdown). Used as the fallback when a
+// step has no AI-provided label — first word (the verb) + next meaningful words.
+const STEP_STOPWORDS = new Set([
+  'a', 'an', 'the', 'your', 'my', 'our', 'their', 'to', 'for', 'of', 'in', 'on', 'at',
+  'with', 'and', 'or', 'that', 'this', 'it', 'is', 'be', 'by', 'up', 'out', 'from',
+  'least', 'each', 'every', 'per', 'one', 'two', 'three', 'least',
+])
+export function shortStepLabel(title) {
+  // Split on clause boundaries only — ", " (with a space) not bare commas, so
+  // numbers like "$1,200" survive intact.
+  const words = String(title || '').split(/[—–(]|,\s/)[0].split(/\s+/).filter(Boolean)
+  const keep = []
+  for (const w of words) {
+    const clean = w.replace(/[^\w$%',./-]/g, '').replace(/[,.]+$/, '')
+    if (!clean) continue
+    if (keep.length && STEP_STOPWORDS.has(clean.toLowerCase())) continue // always keep the leading verb
+    keep.push(clean)
+    if (keep.length === 3) break
+  }
+  return keep.join(' ') || 'Step'
+}
+
+// Steps may arrive as plain strings (local templates, legacy data) or as
+// { label, detail } objects from the AI roadmap. Either way the stored shape is
+// { id, title: <full detail>, label: <2-3 words>, completed }.
 function mkSteps(arr) {
-  return arr.map((t, i) => ({ id: `s${i + 1}`, title: t, completed: false }))
+  return arr.map((t, i) => {
+    if (t && typeof t === 'object') {
+      const detail = String(t.detail || t.title || '').trim() || 'Take the next step'
+      const label = String(t.label || '').trim() || shortStepLabel(detail)
+      return { id: `s${i + 1}`, title: detail, label, completed: false }
+    }
+    const title = String(t)
+    return { id: `s${i + 1}`, title, label: shortStepLabel(title), completed: false }
+  })
 }
 function defaultRoadmap(title) {
   return {
@@ -430,8 +465,12 @@ export function normalizeAiGoal(ai, rawGoal, extra = '', id = 'goal-primary') {
   // Keep the engine's id/horizon scheme so Roadmap renders identically.
   const milestones = ai.milestones.slice(0, 3).map((m, i) => {
     const steps = (Array.isArray(m.steps) ? m.steps : [])
-      .map((s) => (typeof s === 'string' ? s : s?.title))
-      .filter((t) => t && String(t).trim())
+      .map((s) => {
+        if (typeof s === 'string') return s.trim() ? s : null
+        if (s && typeof s === 'object' && (s.detail || s.title)) return { label: s.label, detail: s.detail || s.title }
+        return null
+      })
+      .filter(Boolean)
     return {
       id: `ms-${[3, 6, 12][i] || i + 1}`,
       // Prefer the AI's horizon label — it adapts to the user's own deadline

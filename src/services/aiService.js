@@ -297,7 +297,7 @@ TIMELINE RULES — the plan must make sense as a schedule, not just a list:
 
 SPECIFICITY TEST: if a milestone or stepping stone would fit a DIFFERENT goal without changes ("build the habit", "do more research", "stay consistent"), it is too generic — rewrite it with the concrete noun, number, or artifact from THIS goal.
 - Milestone titles describe a concrete, verifiable outcome (something you could point at and say "done").
-- Each stepping stone starts with a verb and names the specific thing to produce, book, buy, contact, or complete.
+- Each stepping stone has TWO parts: a "label" — a 2-3 word name shown on the roadmap path (verb-first, e.g. "Open Japan Fund", "Book flights") — and a "detail": the full verb-first action naming the specific thing to produce, book, buy, contact, or complete.
 - "dailyActions" are 3 small things they can do most days to keep momentum, phrased for THIS goal.
 
 Return ONLY this JSON, no prose, no code fences:
@@ -305,9 +305,9 @@ Return ONLY this JSON, no prose, no code fences:
   "title": "<short actionable goal title, Title Case, no leading 'I want to'>",
   "category": "<one of: ${GOAL_CATEGORIES.join(', ')}>",
   "milestones": [
-    { "horizon": "<first checkpoint, e.g. 3 months>", "title": "<specific outcome>", "steps": ["<verb-first action>", "<action>", "<action>"] },
-    { "horizon": "<second checkpoint, e.g. 6 months>", "title": "<specific outcome>", "steps": ["<action>", "<action>", "<action>"] },
-    { "horizon": "<final checkpoint, e.g. 12 months>", "title": "<the goal achieved, verifiable>", "steps": ["<action>", "<action>", "<action>"] }
+    { "horizon": "<first checkpoint, e.g. 3 months>", "title": "<specific outcome>", "steps": [{ "label": "<2-3 words>", "detail": "<full verb-first action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] },
+    { "horizon": "<second checkpoint, e.g. 6 months>", "title": "<specific outcome>", "steps": [{ "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] },
+    { "horizon": "<final checkpoint, e.g. 12 months>", "title": "<the goal achieved, verifiable>", "steps": [{ "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] }
   ],
   "dailyActions": ["<small daily action>", "<small daily action>", "<small daily action>"]
 }`

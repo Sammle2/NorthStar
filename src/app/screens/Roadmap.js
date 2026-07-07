@@ -4,7 +4,7 @@ import Svg, { Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-native-s
 import { RotateCcw } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
-import { recomputeGoal } from '../aiEngine'
+import { recomputeGoal, shortStepLabel } from '../aiEngine'
 import StarField from '../components/StarField'
 
 // "The Path" — the winding road. Square One at the bottom, the summit at the top.
@@ -47,6 +47,8 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   const goals = profile.goals
   const [view, setView] = useState('dream')
   const [selected, setSelected] = useState(null)
+  // Which stepping stone's detail dropdown is open (key: `${milestoneId}:${stepId}`).
+  const [expandedStep, setExpandedStep] = useState(null)
   const scrollRef = useRef(null)
 
   // Scroll position drives the parallax starfield (stars drift slower than the road).
@@ -160,11 +162,11 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
       {/* Path switcher — wraps onto multiple rows so every goal chip is visible
           (horizontal scroll was easy to miss, especially on web). */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 24, marginTop: 6, marginBottom: 4 }}>
-        <Chip label="✦ The Dream" on={view === 'dream'} color={C.amber} onPress={() => { setView('dream'); setSelected(null) }} />
+        <Chip label="✦ The Dream" on={view === 'dream'} color={C.amber} onPress={() => { setView('dream'); setSelected(null); setExpandedStep(null) }} />
         {goals.map((g) => {
           const c = CATEGORY_COLORS[g.category] || C.amber
           return (
-            <Chip key={g.id} label={g.title} on={view === g.id} color={c} onPress={() => { setView(g.id); setSelected(null) }} />
+            <Chip key={g.id} label={g.title} on={view === g.id} color={c} onPress={() => { setView(g.id); setSelected(null); setExpandedStep(null) }} />
           )
         })}
       </View>
@@ -242,14 +244,24 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
                 const status = stepStatusOf(node.milestone.id, node.step.id)
                 const locked = status === 'locked'
                 const current = status === 'current'
+                const stepKey = `${node.milestone.id}:${node.step.id}`
+                const expanded = expandedStep === stepKey
+                // Path shows the compact 2-3 word name; the full detail lives in
+                // the tap-to-expand dropdown. Legacy steps derive a label locally.
+                const label = node.step.label || shortStepLabel(node.step.title)
+                // Dropdown card: wider than the marker, clamped inside the screen.
+                const cardW = 240
+                const cardLeft = Math.max(8, Math.min(p.x - cardW / 2, W - cardW - 8)) - (p.x - 75)
                 return (
-                  <Pressable
-                    key={node.milestone.id + node.step.id}
-                    onPress={locked ? undefined : () => toggleStep(node.milestone.id, node.step.id)}
-                    disabled={locked}
-                    style={[styles.marker, { top: p.y - 11, left: p.x - 75, width: 150 }, locked && { opacity: 0.4 }]}
+                  <View
+                    key={stepKey}
+                    style={[styles.marker, { top: p.y - 11, left: p.x - 75, width: 150, zIndex: expanded ? 40 : 1 }, locked && !expanded && { opacity: 0.4 }]}
                   >
-                    <View
+                    {/* The stone itself still toggles completion */}
+                    <Pressable
+                      onPress={locked ? undefined : () => toggleStep(node.milestone.id, node.step.id)}
+                      disabled={locked}
+                      hitSlop={8}
                       style={[
                         styles.stepNode,
                         lit
@@ -259,10 +271,29 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
                             : { backgroundColor: C.bg, borderColor: C.lineStrong },
                       ]}
                     />
-                    <Text style={[styles.stepLabel, { color: lit ? C.ink2 : current ? accent : C.faint }]}>
-                      {locked ? '🔒 ' : ''}{node.step.title}
-                    </Text>
-                  </Pressable>
+                    {/* The label opens/closes the detail dropdown */}
+                    <Pressable onPress={() => setExpandedStep(expanded ? null : stepKey)} hitSlop={6} style={{ width: '100%', alignItems: 'center' }}>
+                      <Text style={[styles.stepLabel, { color: lit ? C.ink2 : current ? accent : C.faint }]}>
+                        {locked ? '🔒 ' : ''}{label} <Text style={{ fontSize: 9, color: C.faint2 }}>{expanded ? '▲' : '▼'}</Text>
+                      </Text>
+                    </Pressable>
+                    {expanded && (
+                      <Pressable
+                        onPress={() => setExpandedStep(null)}
+                        style={{
+                          position: 'absolute', top: 46, left: cardLeft, width: cardW,
+                          backgroundColor: C.card, borderWidth: 1.5, borderColor: lit || current ? accent : C.lineStrong,
+                          borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+                          shadowColor: '#000', shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 5 },
+                        }}
+                      >
+                        <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.ink2, lineHeight: 18 }}>{node.step.title}</Text>
+                        <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: C.faint, marginTop: 8 }}>
+                          {lit ? '✓ Completed' : current ? 'Up next — tap the stone to complete it' : locked ? 'Locked — finish the earlier stones first' : 'Tap the stone to undo'}
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
                 )
               }
               // milestone checkpoint
