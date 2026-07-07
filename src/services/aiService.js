@@ -379,6 +379,47 @@ Return ONLY JSON:
   }
 }
 
+// Distill durable, user-shared facts from the recent conversation into Nova's
+// long-term memory (profile.coachMemory). Returns the UPDATED fact list (already
+// merged with the existing one by the model), or null when the call failed /
+// returned garbage — callers must treat null as a no-op, never as "clear".
+export async function distillCoachMemory({ profile, history = [] }) {
+  const firstName = (profile?.name || '').split(' ')[0] || 'they'
+  const existing = (profile?.coachMemory?.facts || []).map((f) => `- ${f.text}`).join('\n')
+  const recent = history
+    .slice(-16)
+    .map((m) => `${m.from === 'coach' ? 'Nova' : firstName}: ${m.text}`)
+    .join('\n')
+
+  const prompt = `You maintain Nova the coach's long-term memory about ${firstName}.
+
+Current memory:
+${existing || '(empty)'}
+
+Recent conversation:
+${recent || '(none)'}
+
+Rewrite the memory as an updated list of AT MOST 15 short facts about ${firstName} that will still matter weeks from now: personal context they shared (work, family, health, upcoming events), preferences, recurring struggles, wins, and commitments. Merge duplicates, update anything stale, and drop small talk. Rules:
+- ONLY facts ${firstName} actually stated — never inferred or invented.
+- No sensitive inferences (diagnoses, politics, religion) unless they said it explicitly and it matters for coaching.
+- Each fact is one plain sentence, no names of third parties beyond what they shared.
+
+Return ONLY a JSON array of strings, e.g. ["Works in sales at a startup", "Training for a June half marathon"]. Return [] if nothing is worth remembering. No prose, no code fences.`
+
+  try {
+    const res = await callClaude(prompt, 700)
+    const arr = extractJson(res)
+    if (!Array.isArray(arr)) return null
+    return arr
+      .filter((t) => typeof t === 'string' && t.trim())
+      .slice(0, 15)
+      .map((text) => ({ text: text.trim().slice(0, 200) }))
+  } catch (e) {
+    console.warn('[Memory] distillation failed:', e?.message)
+    return null
+  }
+}
+
 // Apply a goal-adjustment action from Nova to the goals array. Returns the new
 // goals array, or null when the action is a no-op / can't be applied. Exported so
 // the caller can apply it against the CURRENT goals at write time (not a snapshot).
@@ -419,12 +460,21 @@ export async function coachRespond({ profile, history = [], userText }) {
   const goalList = goals.length
     ? goals.map((g) => `- id:${g.id} | "${g.title}"${g === primary ? ' (primary)' : ''}`).join('\n')
     : '(no goals yet)'
+  // Long-term memory: distilled facts about THIS user from all their past chats
+  // (profile.coachMemory, maintained by distillCoachMemory below). This is what
+  // lets Nova remember someone beyond the rolling 60-message history window.
+  const memoryFacts = (profile?.coachMemory?.facts || [])
+    .map((f) => `- ${f.text}`)
+    .join('\n')
 
   const prompt = `You are Nova, ${firstName}'s personal coach inside the NorthStar app. If they ask your name, it's Nova. Respond to their latest message in character, and — ONLY when they clearly ask — adjust their goals.
 
 About ${firstName}:
 - Their dream: "${profile?.dreamDescription || profile?.primaryGoalRaw || 'building the life they want'}"
 - Current streak: ${profile?.streak || 0} days
+
+What you remember about ${firstName} from earlier conversations:
+${memoryFacts || '(nothing yet — you are still getting to know them)'}
 
 Their current goals:
 ${goalList}
@@ -474,4 +524,5 @@ export default {
   generateSprintPlan,
   judgeGoal,
   coachRespond,
+  distillCoachMemory,
 }

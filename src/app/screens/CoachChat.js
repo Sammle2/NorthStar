@@ -15,7 +15,7 @@ import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import { MessageBubble, TypingDots } from '../components/ChatBits'
 import { COACH_MESSAGES, coachReply } from '../aiEngine'
-import { coachRespond, applyGoalAction } from '../../services/aiService'
+import { coachRespond, applyGoalAction, distillCoachMemory } from '../../services/aiService'
 import { nowTime } from '../store'
 
 const TONE_LABELS = { tough: 'Tough Love', gentle: 'Supportive', default: 'Balanced' }
@@ -95,6 +95,35 @@ export default function CoachChat({ profile, onUpdate }) {
       const nextGoals = action ? applyGoalAction(prof.goals, action) : null
       return { ...prof, ...(nextGoals ? { goals: nextGoals } : {}), coachHistory: withReply.slice(-60) }
     })
+    maybeDistill(withReply)
+  }
+
+  // Long-term memory: every few user turns, distill the conversation into durable
+  // facts on profile.coachMemory (fire-and-forget — a failure just retries on a
+  // later turn). This is how Nova remembers the user beyond the 60-message window.
+  const DISTILL_EVERY = 6
+  const distilling = useRef(false)
+  const maybeDistill = async (msgs, force = false) => {
+    const prof = profileRef.current
+    const userCount = msgs.filter((m) => m.from === 'user').length
+    const lastAt = prof.coachMemory?.distilledAtCount || 0
+    if (distilling.current || (!force && userCount - lastAt < DISTILL_EVERY)) return
+    distilling.current = true
+    try {
+      const facts = await distillCoachMemory({ profile: prof, history: msgs })
+      if (facts) {
+        onUpdate((p) => ({
+          ...p,
+          coachMemory: { facts, distilledAtCount: userCount, updatedAt: new Date().toISOString() },
+        }))
+      }
+    } finally {
+      distilling.current = false
+    }
+  }
+  // Dev-only hook so tooling can force a distillation pass from the console.
+  if (__DEV__ && Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.__nsDistillNow = () => maybeDistill(messages, true)
   }
 
   const changeTone = (tone) => {

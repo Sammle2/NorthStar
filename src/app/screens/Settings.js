@@ -139,6 +139,32 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
           </Text>
         </Section>
 
+        {/* Nova's long-term memory — transparent and erasable. */}
+        <Section label="NOVA'S MEMORY">
+          {(profile.coachMemory?.facts || []).length ? (
+            <>
+              <View style={{ gap: 8 }}>
+                {profile.coachMemory.facts.map((f, i) => (
+                  <View key={i} style={{ flexDirection: 'row', gap: 8 }}>
+                    <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.violet }}>•</Text>
+                    <Text style={{ flex: 1, fontFamily: F.body, fontSize: 12.5, color: C.dim, lineHeight: 18 }}>{f.text}</Text>
+                  </View>
+                ))}
+              </View>
+              <Pressable
+                onPress={() => onUpdate({ ...profile, coachMemory: null })}
+                style={{ marginTop: 14, alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: C.lineStrong }}
+              >
+                <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>Forget everything</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim, lineHeight: 19 }}>
+              As you chat, Nova remembers the things that matter — your work, your wins, what you're working through — so you never have to repeat yourself. What Nova learns shows up here.
+            </Text>
+          )}
+        </Section>
+
         {/* AI features are powered by NorthStar's own backend — no user API key needed. */}
         <Section label="AI FEATURES">
           <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim, lineHeight: 19 }}>
