@@ -38,7 +38,13 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
     let rows
     if (which === 'friends') {
       const fs = await getFriendships()
-      const ids = fs.filter((f) => f.status === 'accepted').map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id))
+      // Only ACCEPTED friendships where I am actually a party. The RLS policy
+      // already guarantees this server-side; this keeps the friends feed correct
+      // even if that policy ever loosens — a stranger's public post must never
+      // ride into the My Friends tab through a polluted id list.
+      const ids = fs
+        .filter((f) => f.status === 'accepted' && (f.requester_id === myId || f.addressee_id === myId))
+        .map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id))
       rows = await getFriendsFeed(ids, myId)
     } else {
       rows = await getPublicFeed(myId)
@@ -53,19 +59,30 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
     if (!text) return
     setPosting(true)
     setDraft('')
-    // Guarantee my public profile row exists first — the posts SELECT policy and the
-    // feed's inner join both require it, so without it a fresh account's post is
-    // invisible to its own author ("won't post").
+    // Guarantee my public profile row exists first — the feed's inner join
+    // requires it, so without it a fresh account's post is invisible to its own
+    // author ("won't post"). The post's audience is whichever segment is selected
+    // when it's sent: Public → everyone on the app, My Friends → friends only.
     await saveProfileNow(profile)
-    await createPost(text)
-    await load(feed)
+    const { error } = await createPost(text, feed === 'public' ? 'public' : 'friends')
+    if (error) {
+      // Post failed (offline / server error) — put the draft back so the user's
+      // words aren't silently lost.
+      setDraft(text)
+    } else {
+      await load(feed)
+    }
     setPosting(false)
   }
 
   const like = async (p) => {
-    // optimistic
+    // optimistic — roll back if the write fails so the heart never lies.
+    // Roll back from the captured pre-toggle p.likedByMe, not current state.
     setPosts((arr) => arr.map((x) => (x.id === p.id ? { ...x, likedByMe: !x.likedByMe, likeCount: x.likeCount + (x.likedByMe ? -1 : 1) } : x)))
-    await toggleLike(p.id, myId, p.likedByMe)
+    const { error } = await toggleLike(p.id, myId, p.likedByMe)
+    if (error) {
+      setPosts((arr) => arr.map((x) => (x.id === p.id ? { ...x, likedByMe: p.likedByMe, likeCount: p.likeCount } : x)))
+    }
   }
 
   return (

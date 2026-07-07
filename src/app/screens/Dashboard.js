@@ -4,9 +4,8 @@ import { Bell, CheckCircle2, Circle, Clock, Settings as SettingsIcon, Zap } from
 import { C, F } from '../tokens'
 import GlowProgress from '../components/GlowProgress'
 import StreakBadge from '../components/StreakBadge'
-import VisionBoard from '../components/VisionBoard'
 import { COACH_MESSAGES, NN_TIME_OPTIONS, generateNonNegotiables } from '../aiEngine'
-import { getGreeting, todayKey } from '../store'
+import { daysSinceJoined, getGreeting, todayKey } from '../store'
 
 // Screen 4 — the home. A clean, emoji-free checklist of exactly three
 // non-negotiables for today. Hit all three and the day's streak is locked in.
@@ -65,7 +64,7 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings }) {
             <Pressable onPress={onOpenSettings} hitSlop={10}>
               <SettingsIcon size={20} color={C.faint} strokeWidth={2} />
             </Pressable>
-            <StreakBadge streak={profile.streak} size="sm" />
+            <StreakBadge streak={daysSinceJoined(profile)} size="sm" />
           </View>
         </View>
 
@@ -90,7 +89,7 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings }) {
       <View style={{ paddingHorizontal: 24, marginBottom: 16 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: C.amberFill, borderWidth: 1, borderColor: 'rgba(245,158,11,0.1)' }}>
           <Bell size={13} color={C.amber} strokeWidth={2} />
-          <Text style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>Daily reminder set · 8:00 AM</Text>
+          <Text style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>Daily check-in · 1:00 PM</Text>
         </View>
       </View>
 
@@ -167,8 +166,6 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings }) {
         </View>
       </View>
 
-      {/* Vision board — what the dream looks like */}
-      <VisionBoard profile={profile} onUpdate={onUpdate} />
     </ScrollView>
   )
 }

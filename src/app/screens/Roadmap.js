@@ -37,10 +37,12 @@ function buildGeometry(nodeCount, W) {
 }
 
 export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
-  // Read width from the hook (not module-level Dimensions, which can be 0 before
-  // layout on web) so the road geometry is always correct and responsive.
+  // Size the road to the ACTUAL container, not the window: on web the app lives in
+  // a fixed 375px phone frame while the window is much wider — useWindowDimensions
+  // alone would build a 520px road that overflows the frame and clips edge labels.
   const win = useWindowDimensions()
-  const W = Math.min(win.width || 520, 520)
+  const [containerW, setContainerW] = useState(0)
+  const W = Math.min(containerW || win.width || 520, 520)
 
   const goals = profile.goals
   const [view, setView] = useState('dream')
@@ -61,6 +63,14 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   }, [])
 
   const goal = goals.find((g) => g.id === view)
+  // If the viewed goal disappears (e.g. NOVA removed it via chat), fall back to
+  // the Dream view instead of leaving the switcher pointing at a dead id.
+  useEffect(() => {
+    if (view !== 'dream' && !goal) {
+      setView('dream')
+      setSelected(null)
+    }
+  }, [view, goal])
   const dreamPct = useMemo(
     () => (goals.length ? Math.round(goals.reduce((s, g) => s + g.progress, 0) / goals.length) : 0),
     [profile],
@@ -125,7 +135,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
+    <View style={{ flex: 1, backgroundColor: C.bg }} onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}>
       {/* Header */}
       <View style={{ paddingHorizontal: 24, paddingTop: 56, paddingBottom: 6 }}>
         <Text style={{ fontFamily: F.display, fontSize: 11.5, color: C.faint, letterSpacing: 3 }}>YOUR PATH TO</Text>
@@ -154,7 +164,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
         {goals.map((g) => {
           const c = CATEGORY_COLORS[g.category] || C.amber
           return (
-            <Chip key={g.id} label={g.title.length > 24 ? g.title.slice(0, 24) + '…' : g.title} on={view === g.id} color={c} onPress={() => { setView(g.id); setSelected(null) }} />
+            <Chip key={g.id} label={g.title} on={view === g.id} color={c} onPress={() => { setView(g.id); setSelected(null) }} />
           )
         })}
       </View>
@@ -218,7 +228,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
           </Svg>
 
           {/* Square one */}
-          <View style={[styles.marker, { top: geo.height - PAD_BOTTOM - 14, left: W / 2 - 14 }]}>
+          <View style={[styles.marker, { top: geo.height - PAD_BOTTOM - 14, left: W / 2 - 75, width: 150 }]}>
             <View style={[styles.stepNode, { borderColor: C.violet, backgroundColor: C.bg }]} />
             <Text style={[styles.stepLabel, { color: C.dim }]}>Square One</Text>
           </View>
@@ -237,7 +247,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
                     key={node.milestone.id + node.step.id}
                     onPress={locked ? undefined : () => toggleStep(node.milestone.id, node.step.id)}
                     disabled={locked}
-                    style={[styles.marker, { top: p.y - 11, left: p.x - 11 }, locked && { opacity: 0.4 }]}
+                    style={[styles.marker, { top: p.y - 11, left: p.x - 75, width: 150 }, locked && { opacity: 0.4 }]}
                   >
                     <View
                       style={[
@@ -249,7 +259,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
                             : { backgroundColor: C.bg, borderColor: C.lineStrong },
                       ]}
                     />
-                    <Text style={[styles.stepLabel, { color: lit ? C.ink2 : current ? accent : C.faint }]} numberOfLines={2}>
+                    <Text style={[styles.stepLabel, { color: lit ? C.ink2 : current ? accent : C.faint }]}>
                       {locked ? '🔒 ' : ''}{node.step.title}
                     </Text>
                   </Pressable>
@@ -264,7 +274,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
                 <Pressable
                   key={m.id}
                   onPress={() => setSelected({ horizon: m.horizon, title: m.title, detail: `${doneSteps}/${(m.steps || []).length} stepping stones complete`, lit, accent, current: isCurrent })}
-                  style={[styles.marker, { top: p.y - 19, left: p.x - 19 }]}
+                  style={[styles.marker, { top: p.y - 19, left: p.x - 85, width: 170 }]}
                 >
                   <View style={{ alignItems: 'center', justifyContent: 'center' }}>
                     {/* "You are here" pulsing glow on the current milestone */}
@@ -296,7 +306,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
                       <Text style={{ fontFamily: F.bold, fontSize: 11, color: lit ? C.amberInk : accent }}>{m.horizon.split(' ')[0]}</Text>
                     </View>
                   </View>
-                  {isCurrent && <Text style={{ fontFamily: F.bold, fontSize: 8.5, color: accent, letterSpacing: 1.5, marginTop: 5, marginLeft: -64, width: 150, textAlign: 'center' }}>YOU ARE HERE</Text>}
+                  {isCurrent && <Text style={{ fontFamily: F.bold, fontSize: 8.5, color: accent, letterSpacing: 1.5, marginTop: 5, width: '100%', textAlign: 'center' }}>YOU ARE HERE</Text>}
                   <Text style={[styles.msKicker, { color: accent, marginTop: isCurrent ? 2 : 7 }]}>{m.horizon.toUpperCase()}</Text>
                   <Text style={[styles.msLabel, { color: lit ? C.ink : C.ink2 }]}>{m.title}</Text>
                 </Pressable>
@@ -312,7 +322,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
                   : { horizon: 'The dream', title: 'The Dream', detail: `${dreamPct}% of the whole journey is lit`, lit: dreamPct >= 100, accent: C.amber },
               )
             }
-            style={[styles.marker, { top: PAD_TOP - 34, left: W / 2 - 22 }]}
+            style={[styles.marker, { top: PAD_TOP - 34, left: W / 2 - 110, width: 220 }]}
           >
             <Text style={{ fontSize: 30 }}>{pct >= 100 ? '🏆' : '✦'}</Text>
             <Text style={[styles.summitLabel, { color: C.amber }]}>{goal ? goal.title : 'The Dream'}</Text>
@@ -341,21 +351,26 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
 }
 
 function Chip({ label, on, color, onPress }) {
+  // Chips show the FULL goal title — no character slicing. Long titles shrink to
+  // the row and wrap onto a second line rather than getting cut off.
   return (
-    <Pressable onPress={onPress} style={{ borderWidth: 1, borderRadius: 99, paddingVertical: 8, paddingHorizontal: 14, borderColor: on ? color : C.lineStrong, backgroundColor: on ? color + '1f' : 'transparent' }}>
-      <Text style={{ fontFamily: on ? F.bold : F.medium, color: on ? color : C.dim, fontSize: 12.5 }}>{label}</Text>
+    <Pressable onPress={onPress} style={{ flexShrink: 1, maxWidth: '100%', borderWidth: 1, borderRadius: 99, paddingVertical: 8, paddingHorizontal: 14, borderColor: on ? color : C.lineStrong, backgroundColor: on ? color + '1f' : 'transparent' }}>
+      <Text style={{ fontFamily: on ? F.bold : F.medium, color: on ? color : C.dim, fontSize: 12.5, textAlign: 'center', lineHeight: 17 }}>{label}</Text>
     </Pressable>
   )
 }
 
 const styles = StyleSheet.create({
+  // Markers are FIXED-WIDTH containers centered on their node (left: x - width/2),
+  // so labels are truly centered and can never spill past the screen edge. Labels
+  // fill the container ('100%') and wrap without clamping — full text, always.
   marker: { position: 'absolute', alignItems: 'center' },
   stepNode: { width: 22, height: 22, borderRadius: 11, borderWidth: 2.5 },
   msNode: { width: 38, height: 38, borderRadius: 19, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
-  stepLabel: { fontSize: 11, fontFamily: F.medium, marginTop: 6, textAlign: 'center', lineHeight: 15, width: 150, marginLeft: -64 },
-  msKicker: { fontSize: 9, fontFamily: F.bold, letterSpacing: 1.5, marginTop: 7, marginLeft: -64, width: 150, textAlign: 'center' },
-  msLabel: { fontSize: 13, fontFamily: F.bold, marginTop: 2, textAlign: 'center', lineHeight: 17, width: 170, marginLeft: -66 },
-  summitLabel: { fontSize: 14, fontFamily: F.bold, marginTop: 6, textAlign: 'center', lineHeight: 19, width: 220, marginLeft: -98 },
+  stepLabel: { fontSize: 11, fontFamily: F.medium, marginTop: 6, textAlign: 'center', lineHeight: 15, width: '100%' },
+  msKicker: { fontSize: 9, fontFamily: F.bold, letterSpacing: 1.5, marginTop: 7, width: '100%', textAlign: 'center' },
+  msLabel: { fontSize: 13, fontFamily: F.bold, marginTop: 2, textAlign: 'center', lineHeight: 17, width: '100%' },
+  summitLabel: { fontSize: 14, fontFamily: F.bold, marginTop: 6, textAlign: 'center', lineHeight: 19, width: '100%' },
   detail: {
     position: 'absolute',
     bottom: 96,

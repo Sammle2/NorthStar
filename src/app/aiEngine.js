@@ -42,13 +42,58 @@ const VOCAB = [
   'business', 'startup', 'company', 'entrepreneur', 'founder', 'product', 'launch', 'revenue', 'clients', 'customers', 'brand', 'career', 'promotion',
   'health', 'healthy', 'fitness', 'gym', 'weight', 'muscle', 'marathon', 'workout', 'strong', 'energy', 'sleep', 'nutrition', 'running',
   'write', 'writing', 'book', 'novel', 'author', 'music', 'film', 'creative', 'create', 'design', 'painting', 'podcast', 'youtube', 'content', 'channel',
+  'cook', 'cooking', 'recipe', 'chef', 'kitchen', 'meal', 'bake', 'baking',
   'travel', 'world', 'adventure', 'explore', 'abroad', 'nomad',
   'family', 'children', 'parents', 'relationship', 'partner', 'marriage', 'friends', 'community',
   'peace', 'happy', 'purpose', 'meaning', 'growth', 'learn', 'wisdom', 'mindset', 'spiritual', 'confidence', 'discipline', 'focus', 'meditation', 'journal',
   'lifestyle', 'remote', 'balance', 'flexible',
   'graduate', 'school', 'college', 'degree', 'study', 'essay', 'dream', 'goal', 'build', 'master', 'improve', 'achieve',
+  // Legit derivative forms users write as-is — recognized so they're never
+  // "corrected", and typos of them correct to the right form (incl. plurals).
+  'wealthy', 'save', 'saving', 'client', 'customer', 'parent', 'finances', 'goals', 'books', 'meals', 'dreams',
 ]
 const VOCAB_SET = new Set(VOCAB)
+
+// Real English words that sit one or two edits from a vocab word ("lunch"→launch,
+// "journey"→journal, "monkey"→money, "books"→book…). The corrector must NEVER
+// rewrite these — a wrong "fix" mangles the user's own goal text, which is far
+// worse than leaving a typo alone. Includes everyday words as extra safety.
+const COMMON_NEIGHBORS =
+  ('monkey honey brook navel gravel fiend coals goats goat cream yearn built mister approve stealth stealthy ' +
+   'saying lunch grand produce contest context resign explode chicken painter printer mediation journey remove ' +
+   'sturdy kingdom colleague morning ruining witness fatness romance revenge propose decree invent string wrong ' +
+   'steep sheep sleek weigh height place slave salve sailing customs patent mouth month months weekly daily ' +
+   'about above after again might right think thing would could should where which while their there these ' +
+   'those other every first house water small large sound still being never under great worth wrote')
+const COMMON_WORDS = new Set(COMMON_NEIGHBORS.split(/\s+/).filter(Boolean))
+
+// Inflected forms of every recognized word (plurals, -ing, -ed, -er…) are real
+// words the user meant as written — "books" must never be singularized to "book".
+// Over-generating here is harmless: entries only ever SKIP correction.
+const INFLECTED = (() => {
+  const set = new Set()
+  const addForms = (w) => {
+    set.add(w + 's'); set.add(w + 'es')
+    set.add(w + 'ed'); set.add(w + 'ing')
+    set.add(w + 'er'); set.add(w + 'ers')
+    if (w.endsWith('e')) {
+      const stem = w.slice(0, -1)
+      set.add(stem + 'ing'); set.add(w + 'd'); set.add(stem + 'er'); set.add(stem + 'ers')
+    }
+    if (w.endsWith('y')) {
+      const stem = w.slice(0, -1)
+      set.add(stem + 'ies'); set.add(stem + 'ied'); set.add(stem + 'ier')
+    }
+    // Final-consonant doubling (run→running, plan→planned).
+    const last = w[w.length - 1]
+    if (/[bdgklmnprt]/.test(last) && /[aeiou]/.test(w[w.length - 2] || '')) {
+      set.add(w + last + 'ing'); set.add(w + last + 'ed'); set.add(w + last + 'er')
+    }
+  }
+  VOCAB.forEach(addForms)
+  COMMON_WORDS.forEach(addForms)
+  return set
+})()
 
 // Damerau-Levenshtein (optimal string alignment): adjacent transpositions —
 // the most common typo, e.g. "novle"→"novel" — count as a single edit.
@@ -71,8 +116,12 @@ function levenshtein(a, b) {
 
 function correctToken(tok) {
   const lower = tok.toLowerCase()
-  if (lower.length < 4 || VOCAB_SET.has(lower) || /\d/.test(lower)) return tok
-  const maxD = lower.length <= 5 ? 1 : 2
+  // Tokens under 5 letters have too many real-word neighbors (cool/look/took…) —
+  // never correct them. Recognized words and their inflections pass through as-is.
+  if (lower.length < 5 || /\d/.test(lower)) return tok
+  if (VOCAB_SET.has(lower) || INFLECTED.has(lower) || COMMON_WORDS.has(lower)) return tok
+  // Corrections must be confident: 1 edit for 5–6 letter words, 2 only for 7+.
+  const maxD = lower.length <= 6 ? 1 : 2
   let best = null, bestD = 99
   for (const w of VOCAB) {
     if (Math.abs(w.length - lower.length) > maxD) continue
@@ -131,8 +180,16 @@ const UNATTAINABLE = [
   { re: /\b(change my past|undo the past|different person entirely|be someone else)\b/i, what: 'change the past' },
 ]
 
+// Throwaway non-answers the goal gate must never accept, no matter the attempt.
+const NON_ANSWERS = new Set([
+  'idk', 'dunno', 'nothing', 'none', 'whatever', 'anything', 'something', 'stuff', 'things',
+  'test', 'testing', 'asdf', 'qwerty', 'blah', 'na', 'n/a', 'no', 'yes', 'ok', 'okay', 'sure',
+  'lol', 'haha', 'hmm', 'huh', 'what', 'you', 'me', 'goal', 'goals', 'dream', 'dreams',
+])
+
 export function validateGoal(raw) {
-  const hit = UNATTAINABLE.find((u) => u.re.test(raw))
+  const s = (raw || '').trim()
+  const hit = UNATTAINABLE.find((u) => u.re.test(s))
   if (hit) {
     return {
       ok: false,
@@ -140,8 +197,22 @@ export function validateGoal(raw) {
       clarify: `I can't map a path to "${hit.what}" — that's outside what daily action can change. But there's almost always a real goal underneath it. What are you actually after? (more confidence, presence, respect, peace?) Tell me that.`,
     }
   }
-  if (raw.trim().length < 3) {
+  if (s.length < 3) {
     return { ok: false, what: 'that', clarify: "Give me a little more to work with — what's the goal, in a sentence?" }
+  }
+  // Local gibberish gate — catches keysmash and non-answers even when the AI judge
+  // is unreachable (it fails open), so the gate never waves garbage through.
+  const lower = s.toLowerCase()
+  const letters = lower.replace(/[^a-z]/g, '')
+  const oneWord = !/\s/.test(lower)
+  if (oneWord && NON_ANSWERS.has(lower.replace(/[^a-z/]/g, ''))) {
+    return { ok: false, what: 'that', clarify: "That's a placeholder, not a goal. What's the ONE thing you actually want to achieve? Name it — a business, a body, a skill, a number." }
+  }
+  if (letters.length >= 4 && !/[aeiouy]/.test(letters)) {
+    return { ok: false, what: 'that', clarify: "That doesn't read as a real goal to me. Give it to me straight — what do you want to achieve, in plain words?" }
+  }
+  if (letters.length >= 4 && /^(.)\1+$/.test(letters)) {
+    return { ok: false, what: 'that', clarify: "Try again for real this time — what's the one goal that would change things for you?" }
   }
   return { ok: true }
 }
@@ -504,6 +575,7 @@ export const COACH_MESSAGES = {
     toneConfirm: "Noted. I'm going to push you harder than you think you need. That's the deal.",
     generating: 'Building your roadmap. This is the last time excuses get to live here.',
     checkIn: 'Day {streak}. You either showed up or you didn’t. Which is it?',
+    intro: "I'm here. When you're ready to put in the work, talk to me — no fluff.",
     review: "It's been 25 days. Time to face the scoreboard. Let's see what you actually moved on your long game.",
   },
   gentle: {
@@ -514,6 +586,7 @@ export const COACH_MESSAGES = {
     toneConfirm: "I'll be right here, supporting and encouraging you every step. You've got this.",
     generating: 'Creating something beautiful for you. I’m honored to walk this with you.',
     checkIn: 'How are you feeling today, {name}? Every small step matters.',
+    intro: "Hi {name}, I'm right here with you. Whenever you want to talk, I'm listening. 🌱",
     review: "It's been about 25 days — I'd love to gently check in on your bigger goals and celebrate what you've grown.",
   },
   default: {
@@ -524,6 +597,7 @@ export const COACH_MESSAGES = {
     toneConfirm: "Perfect. I'll balance honesty with encouragement — enough edge to keep you moving, enough support to keep you believing.",
     generating: 'Building your personalized roadmap. This is where things get real.',
     checkIn: 'Hey {name} — checking in. How’s the momentum feeling today?',
+    intro: "Hey {name} — I'm Nova, here whenever you need me. What's on your mind?",
     review: "It's been 25 days. Let's review your long-term goals together and lock in everything you've actually reached.",
   },
 }

@@ -38,16 +38,17 @@ const GENDERS = ['Male', 'Female', 'Prefer not to say']
 let idc = 0
 const nid = () => `m${Date.now()}_${idc++}`
 
-// Screen 2 — the Coach's first conversation: intake form → 8-question dream
-// survey → free-text add-ons → primary goal (validated) → tone → generate.
-export default function Onboarding({ onComplete }) {
+// Screen 2 — the Coach's first conversation: intake form (incl. picking a
+// username + email for new accounts) → 8-question dream survey → free-text
+// add-ons → primary goal (validated) → tone → generate.
+export default function Onboarding({ onComplete, onClaimAccount, hasAccount }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [step, setStep] = useState('intake') // intake | survey | extra | goal | tone | generating
   const [isTyping, setIsTyping] = useState(false)
   const [toneSelected, setToneSelected] = useState(false)
   const [progress, setProgress] = useState(0)
-  const data = useRef({ name: '', age: '', gender: '', answers: {}, extra: '', goal: '' })
+  const data = useRef({ name: '', age: '', gender: '', username: '', email: '', answers: {}, extra: '', goal: '' })
   const scrollRef = useRef(null)
 
   const addCoach = (text, delay = 700) =>
@@ -68,12 +69,22 @@ export default function Onboarding({ onComplete }) {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))
   }, [messages, isTyping, step])
 
-  const submitIntake = async ({ name, age, gender }) => {
+  const submitIntake = async ({ name, age, gender, username, email }) => {
     const capped = capName(name)
-    data.current = { ...data.current, name: capped, age, gender }
-    addUser(`${capped} · ${age} · ${gender}`)
+    data.current = { ...data.current, name: capped, age, gender, username: username || '', email: email || '' }
+
+    // New account: claim the username + email now (account is created here, with
+    // a generated password — recovery is via the real email). If it fails (email
+    // taken, username collision, offline), surface the error and stay on intake.
+    if (!hasAccount && onClaimAccount) {
+      const err = await onClaimAccount({ username, email, name: capped })
+      if (err) return err // IntakeForm shows it inline
+    }
+
+    addUser(`${capped} · ${age} · ${gender}${username ? ` · @${username}` : ''}`)
     setStep('survey')
     await addCoach(COACH_MESSAGES.default.dreamIntro, 1000)
+    return null
   }
 
   const submitSurvey = async (answers) => {
@@ -96,20 +107,31 @@ export default function Onboarding({ onComplete }) {
     setInput('')
     addUser(value)
 
-    // Fast local pre-filter — catches empty and obviously impossible answers.
+    const rejected = data.current.goalAttempts || []
+
+    // Fast local pre-filter — catches empty, gibberish, and impossible answers
+    // even when the AI judge is unreachable (it fails open).
     const check = validateGoal(value)
     if (!check.ok) {
+      data.current = { ...data.current, goalAttempts: [...rejected, value] }
       await addCoach(check.clarify, 900)
       return // stay on goal step for a better answer
     }
 
-    // AI gate: Nova judges whether it's a real, workable goal. Gibberish, jokes,
-    // and too-vague answers get a warm re-ask; we stay on this step until the
-    // goal is something we can actually build a roadmap around. Fails open.
+    // AI gate: Nova judges whether it's a real, workable goal. Attempt-aware —
+    // the judge sees every previously rejected answer and holds the same bar on
+    // retries, so the gate stays persistent instead of accepting the second try.
     setIsTyping(true)
-    const verdict = await judgeGoal({ rawGoal: value, name: data.current.name, tone: 'default' })
+    const verdict = await judgeGoal({
+      rawGoal: value,
+      name: data.current.name,
+      tone: 'default',
+      attempt: rejected.length + 1,
+      rejected,
+    })
     setIsTyping(false)
     if (!verdict.ok) {
+      data.current = { ...data.current, goalAttempts: [...rejected, value] }
       await addCoach(verdict.message || "Let's make that more concrete — what specifically do you want to achieve? Give me a real, reachable version.", 900)
       return // loop: keep asking for a more obtainable goal
     }
@@ -164,6 +186,8 @@ export default function Onboarding({ onComplete }) {
         console.warn('[Onboarding] AI roadmap failed, using local roadmap:', e?.message)
       }
 
+      // NOTE: identity fields (userId/email/username) are NOT set here — App.js
+      // merges this over the existing profile so the account linkage survives.
       const profile = {
         name,
         age,
@@ -222,7 +246,7 @@ export default function Onboarding({ onComplete }) {
           ))}
           {isTyping && <TypingDots />}
 
-          {!isTyping && step === 'intake' && <IntakeForm onSubmit={submitIntake} />}
+          {!isTyping && step === 'intake' && <IntakeForm onSubmit={submitIntake} askAccount={!hasAccount} />}
           {!isTyping && step === 'survey' && <DreamSurvey onSubmit={submitSurvey} />}
           {!isTyping && step === 'extra' && <ExtraInfo onSubmit={submitExtra} />}
 
@@ -288,12 +312,37 @@ export default function Onboarding({ onComplete }) {
   )
 }
 
-// ── Intake form: name, age, gender ──────────────────────────────────────────
-function IntakeForm({ onSubmit }) {
+// ── Intake form: name, age, gender (+ username & email for new accounts) ─────
+const cleanUsername = (v) => (v || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20)
+const looksLikeEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((v || '').trim())
+
+function IntakeForm({ onSubmit, askAccount }) {
   const [name, setName] = useState('')
   const [age, setAge] = useState('')
   const [gender, setGender] = useState('')
-  const ready = name.trim() && age.trim() && gender
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const accountReady = !askAccount || (username.trim().length >= 3 && looksLikeEmail(email))
+  const ready = name.trim() && age.trim() && gender && accountReady && !busy
+
+  const submit = async () => {
+    setBusy(true)
+    setError(null)
+    const err = await onSubmit({
+      name: name.trim(),
+      age: age.trim(),
+      gender,
+      username: cleanUsername(username),
+      email: email.trim().toLowerCase(),
+    })
+    if (err) {
+      setError(err)
+      setBusy(false)
+    }
+  }
+
   return (
     <View style={cardStyle}>
       <Text style={cardKicker}>QUICK INTAKE</Text>
@@ -310,7 +359,42 @@ function IntakeForm({ onSubmit }) {
           ))}
         </View>
       </Field>
-      <SubmitBar label="Continue" disabled={!ready} onPress={() => onSubmit({ name: name.trim(), age: age.trim(), gender })} />
+      {askAccount && (
+        <>
+          <Field label="Pick a username">
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.faint }}>@</Text>
+              <TextInput
+                value={username}
+                onChangeText={(v) => setUsername(cleanUsername(v))}
+                placeholder="e.g. sammy_dreams"
+                placeholderTextColor={C.faint2}
+                autoCapitalize="none"
+                autoComplete="off"
+                autoCorrect={false}
+                importantForAutofill="no"
+                style={[fieldInput, { flex: 1 }]}
+              />
+            </View>
+          </Field>
+          <Field label="Email (we'll send a confirmation)">
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              placeholderTextColor={C.faint2}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              style={fieldInput}
+            />
+          </Field>
+        </>
+      )}
+      {error && (
+        <Text style={{ fontFamily: F.body, fontSize: 12.5, color: '#ef4444', marginTop: 12, lineHeight: 18 }}>{error}</Text>
+      )}
+      <SubmitBar label={busy ? 'Setting up…' : 'Continue'} disabled={!ready} onPress={submit} />
     </View>
   )
 }

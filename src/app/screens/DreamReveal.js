@@ -114,7 +114,7 @@ export default function DreamReveal({ profile, onContinue }) {
             YOUR DREAM LIFE
           </Text>
           <Text style={{ fontFamily: F.body, fontSize: 16, color: C.faint, marginTop: 16, textAlign: 'center' }}>
-            Coach has a vision for you, {firstName}.
+            Nova has a vision for you, {firstName}.
           </Text>
         </Animated.View>
       ) : (

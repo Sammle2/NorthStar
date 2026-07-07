@@ -69,21 +69,29 @@ export async function saveProfileNow(profile) {
     lastPushedJson = JSON.stringify(projectionFromProfile(profile))
     return { error: null }
   } catch (e) {
+    // A username unique-index violation (23505) means the handle was taken between
+    // the availability check and this write — surface a clear, actionable message.
+    const taken = e?.code === '23505' || /profiles_username_lower_key|duplicate key/i.test(e?.message || '')
     console.error('[Social] saveProfileNow failed:', e?.message)
-    return { error: e?.message || 'Could not save profile' }
+    return { error: taken ? 'That username is already taken — pick another.' : (e?.message || 'Could not save profile') }
   }
 }
 
-// Is a username taken by someone else? (case-insensitive)
+// Is a username taken by someone else? (case-insensitive). myId is optional —
+// chaining .neq('id', undefined) would throw an invalid-uuid error server-side
+// and silently fail open, approving taken names.
 export async function isUsernameAvailable(username, myId) {
   try {
     const supabase = getSupabaseClient()
-    const { data, error } = await supabase
+    // Escape ILIKE metacharacters so an underscore/percent in a handle is matched
+    // LITERALLY (unescaped, "_" is a single-char wildcard → false "taken" results).
+    const pattern = username.trim().replace(/[\\%_]/g, (c) => `\\${c}`)
+    let query = supabase
       .from('profiles')
       .select('id')
-      .ilike('username', username.trim())
-      .neq('id', myId)
-      .limit(1)
+      .ilike('username', pattern)
+    if (myId) query = query.neq('id', myId)
+    const { data, error } = await query.limit(1)
     if (error) throw error
     return (data || []).length === 0
   } catch (e) {

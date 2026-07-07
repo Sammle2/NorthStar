@@ -4,9 +4,13 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { Mail, Eye, EyeOff, LogIn } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { signUpWithEmail } from '../../services/supabaseAuth'
+import { isUsernameAvailable } from '../../services/socialService'
+
+const cleanUsername = (v) => (v || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20)
 
 export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
   const [name, setName] = useState('')
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -18,8 +22,13 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
   const [signedUpUser, setSignedUpUser] = useState(null)
 
   const handleSignUp = async () => {
-    if (!name.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
+    if (!name.trim() || !username.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
       setError('All fields required')
+      return
+    }
+
+    if (username.trim().length < 3) {
+      setError('Username must be at least 3 characters')
       return
     }
 
@@ -36,7 +45,16 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
     setLoading(true)
     setError(null)
 
-    const { user, session, error: authError } = await signUpWithEmail(email, password)
+    // Check the handle BEFORE creating the account (the DB unique index is the real
+    // guard; this is the friendly early catch). Fails open on a transient error.
+    const free = await isUsernameAvailable(username.trim())
+    if (!free) {
+      setError(`@${username.trim()} is taken — try another.`)
+      setLoading(false)
+      return
+    }
+
+    const { user, needsConfirmation, error: authError } = await signUpWithEmail(email, password, { username: username.trim(), name })
 
     if (authError) {
       setError(authError)
@@ -44,10 +62,15 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
       return
     }
 
-    if (user) {
-      // No email step — accounts auto-confirm + auto-sign-in, so go straight in.
-      // (Cloud sync activates as soon as the session lands via the auth listener.)
-      onSignUpSuccess(user, { name, email })
+    if (user && needsConfirmation) {
+      // Email confirmation required — show the check-your-email step. They can
+      // still continue now; cloud sync activates once the link is clicked.
+      setSignedUpUser(user)
+      setSuccess(true)
+      setLoading(false)
+    } else if (user) {
+      // Auto-confirm still on server-side — straight in.
+      onSignUpSuccess(user, { name, email, username: username.trim() })
     } else {
       setError('Sign up failed. Try again.')
       setLoading(false)
@@ -68,7 +91,7 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
         <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.faint, marginBottom: 28, textAlign: 'center', lineHeight: 19 }}>
           Confirm it to back up your dream to the cloud. You can start right now — your progress saves on this device and syncs once you've confirmed.
         </Text>
-        <Pressable onPress={() => onSignUpSuccess(signedUpUser, { name, email })} style={{ width: '100%', maxWidth: 360 }}>
+        <Pressable onPress={() => onSignUpSuccess(signedUpUser, { name, email, username: username.trim(), needsConfirmation: true })} style={{ width: '100%', maxWidth: 360 }}>
           <LinearGradient colors={[C.amber, C.amberDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 14, paddingVertical: 15, alignItems: 'center' }}>
             <Text style={{ fontFamily: F.bold, fontSize: 15, color: C.amberInk }}>Start building my roadmap</Text>
           </LinearGradient>
@@ -106,6 +129,25 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
               editable={!loading}
               style={{ backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.lineStrong, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontFamily: F.body, fontSize: 15, color: C.ink }}
             />
+          </View>
+
+          {/* Username Input */}
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ fontFamily: F.display, fontSize: 11, color: C.faint, letterSpacing: 2, marginBottom: 8 }}>USERNAME</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.lineStrong, borderRadius: 12, paddingHorizontal: 14 }}>
+              <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.faint2 }}>@</Text>
+              <TextInput
+                value={username}
+                onChangeText={(v) => setUsername(cleanUsername(v))}
+                placeholder="your_handle"
+                placeholderTextColor={C.faint2}
+                autoCapitalize="none"
+                autoComplete="off"
+                autoCorrect={false}
+                editable={!loading}
+                style={{ flex: 1, fontFamily: F.body, fontSize: 15, color: C.ink, paddingVertical: 13 }}
+              />
+            </View>
           </View>
 
           {/* Email Input */}

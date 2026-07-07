@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Animated, Platform, View } from 'react-native'
+import { Animated, Platform, Pressable, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { useFonts, Cinzel_600SemiBold, Cinzel_700Bold, Cinzel_900Black } from '@expo-google-fonts/cinzel'
 import {
@@ -20,7 +20,7 @@ if (Platform.OS !== 'web') {
   }
 }
 
-import { C } from './src/app/tokens'
+import { C, F } from './src/app/tokens'
 import { clearState, loadState, reviewDue, saveState } from './src/app/store'
 import { flushState, pullState, resetPushCache } from './src/services/cloudSync'
 import { resetProfilePushCache } from './src/services/socialService'
@@ -44,13 +44,22 @@ import CoachReview from './src/app/components/CoachReview'
 import GoalEditor from './src/app/components/GoalEditor'
 import ErrorBoundary from './src/app/components/ErrorBoundary'
 import StarField from './src/app/components/StarField'
-import { onAuthStateChange, signOut as supabaseSignOut, signUpWithEmail } from './src/services/supabaseAuth'
+import { establishSessionFromUrl, onAuthStateChange, resendConfirmation, signOut as supabaseSignOut, signUpWithEmail } from './src/services/supabaseAuth'
+import { isUsernameAvailable } from './src/services/socialService'
+import { COACH_MESSAGES } from './src/app/aiEngine'
+import { requestNotificationPermission, scheduleDailyCheckIn, cancelDailyCheckIn, onNotification } from './src/services/notificationService'
+import { Bell } from 'lucide-react-native'
 
 // On web, kill the default focus outline / tap-highlight (the "black box" that
 // appeared around tab icons when clicked). Native has no such artifact.
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
   const s = document.createElement('style')
-  s.textContent = `* { outline: none !important; -webkit-tap-highlight-color: transparent; }`
+  s.textContent = `
+    * { outline: none !important; -webkit-tap-highlight-color: transparent; }
+    /* Hide scrollbars everywhere while keeping scroll functional. */
+    * { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+    *::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+  `
   document.head.appendChild(s)
 }
 
@@ -85,6 +94,8 @@ export default function App() {
   const [showDMs, setShowDMs] = useState(false)
   const [showAddFriends, setShowAddFriends] = useState(false)
   const [socialReload, setSocialReload] = useState(0)
+  const [banner, setBanner] = useState(null)
+  const [resendState, setResendState] = useState('idle') // idle | sending | sent | error
   const syncIntervalRef = useRef(null)
   const authSubscriptionRef = useRef(null)
   const appStateRef = useRef(appState)
@@ -143,6 +154,15 @@ export default function App() {
         setHasSession(!!session) // no session = unconfirmed signup → sync stays off
         console.log('[Auth]', event, user?.email, session ? '(session)' : '(no session)')
 
+        // A real session means the email is confirmed (or auto-confirm is on) —
+        // clear any pending-confirmation flag so the sticky chip disappears.
+        if (session) {
+          const pr = appStateRef.current?.profile
+          if (pr?.pendingEmailConfirmation) {
+            persist({ ...appStateRef.current, profile: { ...pr, pendingEmailConfirmation: false } })
+          }
+        }
+
         // Recovery link established a session → let the user set a new password.
         if (event === 'PASSWORD_RECOVERY') {
           setScreen('reset-password')
@@ -167,13 +187,23 @@ export default function App() {
     }
   }, [screen])
 
-  // Deep links: route a password-recovery link to the reset screen. On web,
-  // supabase-js also auto-detects the recovery token and fires PASSWORD_RECOVERY
-  // (handled above); on native this listener catches the northstar:// open.
+  // Deep links: route a password-recovery link to the reset screen, and turn an
+  // email-confirmation link into a live session. On web, supabase-js auto-detects
+  // tokens in the URL (PASSWORD_RECOVERY / SIGNED_IN fire via the listener); on
+  // native this listener catches the northstar:// open and sets the session itself.
   useEffect(() => {
-    const onUrl = ({ url }) => {
-      if (url && (url.includes('reset-password') || url.includes('type=recovery'))) {
+    const onUrl = async ({ url }) => {
+      if (!url) return
+      if (url.includes('reset-password') || url.includes('type=recovery')) {
         setScreen('reset-password')
+        return
+      }
+      if (url.includes('confirm-email') || url.includes('type=signup')) {
+        if (Platform.OS !== 'web') {
+          const { session } = await establishSessionFromUrl(url)
+          if (session) console.log('[Auth] email confirmed — session established')
+        }
+        // hasSession flips via the auth listener; sync starts on its own.
       }
     }
     const sub = Linking.addEventListener('url', onUrl)
@@ -223,11 +253,46 @@ export default function App() {
     if (screen === 'app' && reviewDue(appState.profile)) setShowReview(true)
   }, [screen, appState.profile])
 
+  // In-app notification banner — surfaces check-ins / motivations from the
+  // notification service (visible in the preview + the native fallback path).
+  useEffect(() => onNotification((n) => setBanner(n)), [])
+  useEffect(() => {
+    if (!banner) return
+    const t = setTimeout(() => setBanner(null), 6000)
+    return () => clearTimeout(t)
+  }, [banner])
+
+  // Schedule the daily 1pm "quick check" once the user is in the app. The message
+  // text is resolved at fire time so it reflects the current tone / streak.
+  useEffect(() => {
+    if (screen !== 'app' || !appState.profile) return
+    requestNotificationPermission()
+    scheduleDailyCheckIn(() => {
+      const prof = appStateRef.current?.profile || {}
+      const tone = prof.coachTone || 'default'
+      const first = (prof.name || '').split(' ')[0] || 'there'
+      const body = (COACH_MESSAGES[tone]?.checkIn || COACH_MESSAGES.default.checkIn)
+        .replace('{streak}', String(prof.streak || 0))
+        .replace('{name}', first)
+      return { title: prof.coachName || 'Nova', body }
+    })
+    return () => cancelDailyCheckIn()
+  }, [screen, appState.profile?.userId])
+
   const persist = (next) => {
+    appStateRef.current = next // keep the ref current so same-tick reads never lag a render
     setAppState(next)
     saveState(next)
   }
-  const updateProfile = (profile) => persist({ ...appState, profile })
+  // Accepts a full profile object OR an updater (prevProfile) => nextProfile. Always
+  // works off the CURRENT profile via the ref, so an async writer (e.g. a NOVA reply
+  // that resolves after the user left the Coach tab) MERGES its change instead of
+  // reverting edits made in the meantime.
+  const updateProfile = (profileOrFn) => {
+    const cur = appStateRef.current
+    const profile = typeof profileOrFn === 'function' ? profileOrFn(cur.profile) : profileOrFn
+    persist({ ...cur, profile })
+  }
 
   const handleSignInSuccess = async (user) => {
     console.log('[Auth] Sign-in success:', user.email)
@@ -269,10 +334,10 @@ export default function App() {
     }
   }
 
-  const freshProfile = (user, name = '') => ({
+  const freshProfile = (user, name = '', username = '') => ({
     userId: user.id,
     email: user.email,
-    username: '',
+    username,
     bio: '',
     avatarUrl: null,
     visibility: 'private',
@@ -289,8 +354,6 @@ export default function App() {
     streak: 0,
     goals: [],
     dailyActions: [],
-    visionBoardKeywords: [],
-    visionBoardImages: [],
     nonNeg: {},
     lastCheckInDate: null,
     sprints: [],
@@ -303,17 +366,15 @@ export default function App() {
 
   const handleSignUpSuccess = (user, metadata) => {
     console.log('[Auth] Sign-up success:', user.email)
-    persist({ profile: freshProfile(user, metadata.name), dreamRevealSeen: false })
+    persist({ profile: { ...freshProfile(user, metadata.name, metadata.username || ''), pendingEmailConfirmation: !!metadata.needsConfirmation }, dreamRevealSeen: false })
     setAuthUser(user)
     setScreen('onboarding')
   }
 
-  // "Begin Your Journey" — no email/login step. Create a silent account so the
-  // user has a real session (cloud sync + social work), then go straight to the
-  // Coach intake. They can set a username later; returning users use "Sign in".
+  // "Begin Your Journey" — straight into the Coach intake. The account (with a
+  // chosen username + REAL email) is claimed during intake via handleClaimAccount;
+  // returning users are routed by how far they've gotten.
   const handleBegin = async () => {
-    // Returning, already-signed-in user tapping the CTA: don't mint a new silent
-    // account — route them into their existing journey by how far they've gotten.
     const existing = appStateRef.current?.profile
     if (existing?.userId) {
       if (existing.dreamDescription || (existing.goals || []).length) {
@@ -327,23 +388,42 @@ export default function App() {
       }
       return
     }
-
-    const rand = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`
-    const email = `northstar.${rand}@gmail.com`
-    const password = `Ns!${Math.random().toString(36).slice(2, 12)}A1`
-    const { user, session, error } = await signUpWithEmail(email, password)
-    if (error || !user) {
-      // Fallback to the normal auth screen if the silent signup fails.
-      console.warn('[Auth] silent begin failed, showing auth:', error)
-      setAuthSubScreen('signup')
-      setScreen('auth')
-      return
-    }
-    resetPushCache()
-    resetProfilePushCache()
-    setAuthUser(user)
-    persist({ profile: freshProfile(user), dreamRevealSeen: false })
     setScreen('onboarding')
+  }
+
+  // Claim the account from the Onboarding intake: username + real email, with a
+  // generated password (recovery is via the email — the Forgot-password flow).
+  // Returns an error string for the form, or null on success.
+  const handleClaimAccount = async ({ username, email, name }) => {
+    try {
+      if (!username || username.length < 3) return 'Pick a username of at least 3 characters.'
+      if (!email) return 'Enter your email — you’ll get a confirmation link.'
+
+      // Check the handle BEFORE creating the account — so a collision never leaves
+      // an orphaned auth user (whose generated password the user never saw), and a
+      // retry never dead-ends on "already registered". Best-effort: isUsernameAvailable
+      // fails open, and the DB unique index is the real enforcement.
+      const free = await isUsernameAvailable(username)
+      if (!free) return `@${username} is taken — try another.`
+
+      const password = `Ns!${Math.random().toString(36).slice(2, 12)}A1`
+      const { user, needsConfirmation, error } = await signUpWithEmail(email, password, { username, name })
+      if (error || !user) {
+        if (/already registered|already been registered|already exists/i.test(error || '')) {
+          return 'An account with this email already exists — go back and tap “Sign in”.'
+        }
+        return error || 'Could not create your account. Try again.'
+      }
+
+      resetPushCache()
+      resetProfilePushCache()
+      setAuthUser(user)
+      persist({ ...appStateRef.current, profile: { ...freshProfile(user, name, username), pendingEmailConfirmation: !!needsConfirmation }, dreamRevealSeen: false })
+      return null
+    } catch (e) {
+      console.error('[Auth] claim account failed:', e?.message)
+      return 'Could not create your account. Check your connection and try again.'
+    }
   }
 
   const handleSignOut = async () => {
@@ -387,7 +467,11 @@ export default function App() {
   }
 
   const handleOnboardingComplete = (profile) => {
-    persist({ profile, dreamRevealSeen: false })
+    // MERGE over the existing profile (onboarding fields win) so the identity
+    // fields set at account-claim time — userId, email, username, avatarUrl —
+    // survive intake completion instead of being wholesale-replaced away.
+    const existing = appStateRef.current?.profile || {}
+    persist({ profile: { ...existing, ...profile }, dreamRevealSeen: false })
     setScreen('dream')
   }
 
@@ -430,6 +514,42 @@ export default function App() {
           and edge icons never clip. flex:1 keeps it full-height. Native stays
           fluid (width capped at 430) so real phones fill the screen. */}
       <View style={{ flex: 1, backgroundColor: C.bg, ...(Platform.OS === 'web' ? { width: 375 } : { width: '100%', maxWidth: 430 }) }}>
+      {/* Sticky confirm-your-email chip: shown while the signup is unconfirmed
+          (real email, no session). Unlike the notification banner it never
+          auto-dismisses; tap = resend the confirmation email. */}
+      {p?.pendingEmailConfirmation && !hasSession && booted &&
+        (screen === 'app' || screen === 'onboarding' || screen === 'dream') && (
+        <Pressable
+          onPress={async () => {
+            if (resendState === 'sending') return
+            setResendState('sending')
+            const { error } = await resendConfirmation(p.email)
+            setResendState(error ? 'error' : 'sent')
+          }}
+          style={{ position: 'absolute', bottom: 96, left: 12, right: 12, zIndex: 999, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(30,22,8,0.97)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.4)', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11 }}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.amber }}>Confirm your email to unlock cloud backup & AI</Text>
+            <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.dim, marginTop: 2 }}>
+              {resendState === 'sent' ? `Sent! Check ${p.email}` : resendState === 'error' ? 'Could not resend — try again in a minute' : `We emailed ${p.email} — tap to resend`}
+            </Text>
+          </View>
+        </Pressable>
+      )}
+      {banner && (
+        <Pressable
+          onPress={() => setBanner(null)}
+          style={{ position: 'absolute', top: 44, left: 12, right: 12, zIndex: 1000, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(20,20,38,0.98)', borderWidth: 1, borderColor: 'rgba(167,139,250,0.35)', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 }}
+        >
+          <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(124,58,237,0.35)', alignItems: 'center', justifyContent: 'center' }}>
+            <Bell size={15} color={C.violet} strokeWidth={2.2} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.ink }}>{banner.title || 'Nova'}</Text>
+            <Text numberOfLines={3} style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim, marginTop: 2 }}>{banner.body}</Text>
+          </View>
+        </Pressable>
+      )}
       <ErrorBoundary key={`root-${boundaryKey}`} onReset={() => setBoundaryKey((k) => k + 1)}>
       {screen === 'welcome' && <Welcome onBegin={handleBegin} onSignIn={() => { setAuthSubScreen('signin'); setScreen('auth') }} />}
 
@@ -454,7 +574,13 @@ export default function App() {
         />
       )}
 
-      {screen === 'onboarding' && <Onboarding onComplete={handleOnboardingComplete} />}
+      {screen === 'onboarding' && (
+        <Onboarding
+          onComplete={handleOnboardingComplete}
+          onClaimAccount={handleClaimAccount}
+          hasAccount={!!appState.profile?.userId}
+        />
+      )}
       {screen === 'dream' && p && <DreamReveal profile={p} onContinue={handleDreamContinue} />}
 
       {screen === 'app' && p && (
@@ -469,7 +595,15 @@ export default function App() {
             </TabFade>
           </ErrorBoundary>
 
-          <Navigation active={tab} onChange={setTab} />
+          <Navigation
+            active={tab}
+            onChange={(t) => {
+              // Refetch the feed every time the Friends tab is (re)opened so it
+              // always shows live data, not the last-loaded snapshot.
+              if (t === 'community') setSocialReload((k) => k + 1)
+              setTab(t)
+            }}
+          />
 
           {showReview && <CoachReview profile={p} onComplete={handleReviewComplete} />}
           {showSettings && (

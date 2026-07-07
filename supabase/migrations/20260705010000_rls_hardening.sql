@@ -21,6 +21,7 @@ create policy "respond to friend request" on public.friendships
 -- or friends-only posts. Gate reads by the SAME visibility rule as posts.
 -- (Assumes the comment's post reference column is `post_id`.)
 drop policy if exists "Post comments are viewable by everyone" on public.post_comments;
+drop policy if exists "view gated comments" on public.post_comments; -- idempotent re-run
 create policy "view gated comments" on public.post_comments
   for select
   using (

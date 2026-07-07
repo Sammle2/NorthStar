@@ -10,7 +10,7 @@ const LAST_SYNC_KEY = 'last_sync_timestamp'
 // {
 //   id: uuid,
 //   operation: 'CREATE' | 'UPDATE' | 'DELETE',
-//   table: 'goals' | 'milestones' | 'steps' | 'daily_actions' | 'vision_board_images',
+//   table: 'goals' | 'milestones' | 'steps' | 'daily_actions',
 //   data: { ... },
 //   timestamp: ISO timestamp,
 //   synced: boolean,

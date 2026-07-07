@@ -68,6 +68,22 @@ export function daysSince(iso, bIso) {
   return Math.floor((b - a) / 86400000)
 }
 
+// Live "day count" for the journey — how many calendar days the user has been on
+// NorthStar, counting the join day as Day 1 and ticking up at LOCAL midnight so it
+// stays in step with the calendar (not a frozen number). Compared at local-midnight
+// boundaries so it never off-by-ones across timezones / DST.
+export function daysSinceJoined(profile) {
+  const start = profile?.joinedDate
+  if (!start) return 1
+  const s = new Date(start)
+  if (isNaN(s.getTime())) return 1
+  const now = new Date()
+  const startMid = new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime()
+  const nowMid = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const days = Math.round((nowMid - startMid) / 86400000)
+  return Math.max(1, days + 1)
+}
+
 // Is the long-term goal review due? (25+ days since the last review / join,
 // and there's at least one milestone still open to talk about.)
 export function reviewDue(profile) {
@@ -153,8 +169,6 @@ export const extendedProfileSchema = {
   // New fields for Dream-to-Action system
   goals: [],
   dailyActions: [],
-  visionBoardKeywords: [],
-  visionBoardImages: [],
 
   // Non-negotiables
   nonNeg: {}, // { dateKey: [{ time, title, completed }, ...] }

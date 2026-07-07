@@ -82,7 +82,7 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
             </Pressable>
           </View>
           <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.faint, marginBottom: 20, lineHeight: 19 }}>
-            Edit your milestones and stepping stones — or let the Coach draft them — then mark how far you’ve come.
+            Edit your milestones and stepping stones — or let Nova draft them — then mark how far you’ve come.
           </Text>
 
           {/* Goal title */}
