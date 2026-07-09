@@ -391,22 +391,22 @@ export default function App() {
     setScreen('onboarding')
   }
 
-  // Claim the account from the Onboarding intake: username + real email, with a
-  // generated password (recovery is via the email — the Forgot-password flow).
-  // Returns an error string for the form, or null on success.
-  const handleClaimAccount = async ({ username, email, name }) => {
+  // Claim the account from the Onboarding intake: username + real email + the
+  // user's OWN password (so they can sign in anywhere, not just recover via
+  // email). Returns an error string for the form, or null on success.
+  const handleClaimAccount = async ({ username, email, password, name }) => {
     try {
       if (!username || username.length < 3) return 'Pick a username of at least 3 characters.'
       if (!email) return 'Enter your email — you’ll get a confirmation link.'
+      if (!password || password.length < 8) return 'Create a password of at least 8 characters.'
 
       // Check the handle BEFORE creating the account — so a collision never leaves
-      // an orphaned auth user (whose generated password the user never saw), and a
-      // retry never dead-ends on "already registered". Best-effort: isUsernameAvailable
-      // fails open, and the DB unique index is the real enforcement.
+      // an orphaned auth user behind, and a retry never dead-ends on "already
+      // registered". Best-effort: isUsernameAvailable fails open, and the DB
+      // unique index is the real enforcement.
       const free = await isUsernameAvailable(username)
       if (!free) return `@${username} is taken — try another.`
 
-      const password = `Ns!${Math.random().toString(36).slice(2, 12)}A1`
       const { user, needsConfirmation, error } = await signUpWithEmail(email, password, { username, name })
       if (error || !user) {
         if (/already registered|already been registered|already exists/i.test(error || '')) {

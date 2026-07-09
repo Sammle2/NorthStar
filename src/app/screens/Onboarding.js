@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Send } from 'lucide-react-native'
+import { Eye, EyeOff, Send } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import GlowProgress from '../components/GlowProgress'
@@ -69,15 +69,16 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount }) {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))
   }, [messages, isTyping, step])
 
-  const submitIntake = async ({ name, age, gender, username, email }) => {
+  const submitIntake = async ({ name, age, gender, username, email, password }) => {
     const capped = capName(name)
+    // The password is passed straight through to account creation — never kept
+    // in the intake data.
     data.current = { ...data.current, name: capped, age, gender, username: username || '', email: email || '' }
 
-    // New account: claim the username + email now (account is created here, with
-    // a generated password — recovery is via the real email). If it fails (email
-    // taken, username collision, offline), surface the error and stay on intake.
+    // New account: claim the username + email + password now. If it fails
+    // (email taken, username collision, offline), surface the error and stay.
     if (!hasAccount && onClaimAccount) {
-      const err = await onClaimAccount({ username, email, name: capped })
+      const err = await onClaimAccount({ username, email, password, name: capped })
       if (err) return err // IntakeForm shows it inline
     }
 
@@ -322,9 +323,11 @@ function IntakeForm({ onSubmit, askAccount }) {
   const [gender, setGender] = useState('')
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  const accountReady = !askAccount || (username.trim().length >= 3 && looksLikeEmail(email))
+  const accountReady = !askAccount || (username.trim().length >= 3 && looksLikeEmail(email) && password.length >= 8)
   const ready = name.trim() && age.trim() && gender && accountReady && !busy
 
   const submit = async () => {
@@ -336,6 +339,7 @@ function IntakeForm({ onSubmit, askAccount }) {
       gender,
       username: cleanUsername(username),
       email: email.trim().toLowerCase(),
+      password,
     })
     if (err) {
       setError(err)
@@ -388,6 +392,23 @@ function IntakeForm({ onSubmit, askAccount }) {
               autoComplete="email"
               style={fieldInput}
             />
+          </Field>
+          <Field label="Create a password (8+ characters)">
+            <View style={[fieldInput, { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 0 }]}>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Min. 8 characters"
+                placeholderTextColor={C.faint2}
+                secureTextEntry={!showPw}
+                autoCapitalize="none"
+                autoComplete="new-password"
+                style={{ flex: 1, fontFamily: F.body, fontSize: 14.5, color: C.ink, paddingVertical: 12 }}
+              />
+              <Pressable onPress={() => setShowPw(!showPw)} hitSlop={10}>
+                {showPw ? <EyeOff size={16} color={C.faint2} strokeWidth={2} /> : <Eye size={16} color={C.faint2} strokeWidth={2} />}
+              </Pressable>
+            </View>
           </Field>
         </>
       )}
