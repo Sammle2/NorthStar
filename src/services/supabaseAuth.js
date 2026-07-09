@@ -108,7 +108,7 @@ export async function resendConfirmation(email) {
     return { error: null }
   } catch (error) {
     console.error('[Auth] Resend confirmation failed:', error?.message)
-    return { error: error?.message || 'Could not resend the email' }
+    return { error: authErrMsg(error, 'Could not resend the email — please try again in a minute.') }
   }
 }
 
@@ -248,6 +248,15 @@ export async function signOut() {
   }
 }
 
+// Human-readable message from any thrown auth error. Server failures can carry
+// an empty/raw-JSON message (a broken SMTP config once surfaced literally "{}"
+// to users) — those get the fallback instead.
+function authErrMsg(error, fallback) {
+  const m = typeof error?.message === 'string' ? error.message.trim() : ''
+  if (!m || /^[{[]/.test(m)) return fallback
+  return m
+}
+
 // Password Reset
 export async function resetPassword(email) {
   try {
@@ -259,7 +268,7 @@ export async function resetPassword(email) {
     return { error: null }
   } catch (error) {
     console.error('Password reset failed:', error?.message)
-    return { error: error?.message || 'Password reset failed' }
+    return { error: authErrMsg(error, 'Could not send the reset email — please try again in a minute.') }
   }
 }
 
@@ -273,7 +282,7 @@ export async function updatePassword(newPassword) {
     return { error: null }
   } catch (error) {
     console.error('Password update failed:', error?.message)
-    return { error: error?.message || 'Password update failed' }
+    return { error: authErrMsg(error, 'Could not update the password — please try again.') }
   }
 }
 
