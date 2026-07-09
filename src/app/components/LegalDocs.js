@@ -1,17 +1,18 @@
 import React, { useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native'
 import { ChevronDown, ChevronRight, FileText, Shield } from 'lucide-react-native'
 import { C, F } from '../tokens'
 
-// Terms & Conditions and Privacy Policy, shown as expandable cards in Settings.
+// Terms & Conditions and Privacy Policy. Shown as expandable cards in Settings
+// (LegalDocs) and as standalone public pages at /terms and /privacy (LegalPage).
 // Content reflects what the app ACTUALLY does: a Supabase-backed goal/social app
 // whose AI features run through Anthropic and whose emails send via Resend.
 // NOTE: this is written to be honest and specific, not as a substitute for a
 // lawyer's review before a public launch.
 
-const LAST_UPDATED = 'July 2026'
+export const LAST_UPDATED = 'July 2026'
 
-const TERMS = [
+export const TERMS = [
   {
     h: '1. Acceptance',
     b: 'NorthStar is a personal goal-setting and coaching app. By creating an account or using the app, you agree to these Terms. If you do not agree, please do not use NorthStar.',
@@ -46,7 +47,7 @@ const TERMS = [
   },
 ]
 
-const PRIVACY = [
+export const PRIVACY = [
   {
     h: '1. The short version',
     b: 'NorthStar stores what you need for the app to work — your account, your goals, your progress, and anything you choose to share. We do not sell your personal data. You can view what Nova remembers, and delete your whole account, from Settings.',
@@ -129,6 +130,52 @@ export default function LegalDocs() {
         open={open === 'privacy'}
         onToggle={() => setOpen(open === 'privacy' ? null : 'privacy')}
       />
+    </View>
+  )
+}
+
+// Web-only navigation helper for the standalone public pages.
+const goTo = (path) => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') window.location.assign(path)
+}
+
+// Standalone, no-login legal page served at /terms and /privacy so the documents
+// can be linked from an app-store listing or a marketing site. `doc` is
+// 'terms' | 'privacy'.
+export function LegalPage({ doc }) {
+  const isTerms = doc === 'terms'
+  const sections = isTerms ? TERMS : PRIVACY
+  const title = isTerms ? 'Terms & Conditions' : 'Privacy Policy'
+  const Icon = isTerms ? FileText : Shield
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 60, paddingBottom: 80, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
+        <Pressable onPress={() => goTo('/')} hitSlop={8} style={{ marginBottom: 20 }}>
+          <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.violet }}>← NorthStar</Text>
+        </Pressable>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+          <Icon size={22} color={C.violet} strokeWidth={2.2} />
+          <Text style={{ fontFamily: F.display, fontSize: 26, color: C.ink, letterSpacing: 1 }}>{title}</Text>
+        </View>
+        <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginBottom: 26 }}>Last updated: {LAST_UPDATED}</Text>
+
+        {sections.map((s) => (
+          <View key={s.h} style={{ marginBottom: 18 }}>
+            <Text style={{ fontFamily: F.semibold, fontSize: 14.5, color: C.ink2 || C.ink, marginBottom: 6 }}>{s.h}</Text>
+            <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.dim, lineHeight: 21 }}>{s.b}</Text>
+          </View>
+        ))}
+
+        <View style={{ flexDirection: 'row', gap: 18, marginTop: 20, paddingTop: 20, borderTopWidth: 1, borderTopColor: C.lineMid }}>
+          <Pressable onPress={() => goTo(isTerms ? '/privacy' : '/terms')} hitSlop={6}>
+            <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.violet }}>{isTerms ? 'Privacy Policy' : 'Terms & Conditions'}</Text>
+          </Pressable>
+          <Pressable onPress={() => goTo('/')} hitSlop={6}>
+            <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.faint }}>Back to app</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
     </View>
   )
 }

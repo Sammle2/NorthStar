@@ -7,7 +7,7 @@ import Avatar from '../components/Avatar'
 import EditProfile from '../components/EditProfile'
 import SyncStatus from '../components/SyncStatus'
 import LegalDocs from '../components/LegalDocs'
-import { capName } from '../aiEngine'
+import { capName, goalMemories } from '../aiEngine'
 import { deleteAccount } from '../../services/accountService'
 
 const TONES = [
@@ -140,8 +140,28 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
           </Text>
         </Section>
 
-        {/* Nova's long-term memory — transparent and erasable. */}
+        {/* Nova's long-term memory — transparent, and only the chat-learned part
+            is erasable: goal memories are derived live from this account's goals
+            (incl. the intake-form goal) and Nova's coaching rules live in its
+            prompt, so neither can be wiped. */}
         <Section label="NOVA'S MEMORY">
+          <Text style={memSubLabel}>YOUR GOALS · ALWAYS REMEMBERED</Text>
+          {goalMemories(profile).length ? (
+            <View style={{ gap: 8, marginBottom: 18 }}>
+              {goalMemories(profile).map((line, i) => (
+                <View key={i} style={{ flexDirection: 'row', gap: 8 }}>
+                  <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.amber }}>★</Text>
+                  <Text style={{ flex: 1, fontFamily: F.body, fontSize: 12.5, color: C.dim, lineHeight: 18 }}>{line}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.faint, lineHeight: 19, marginBottom: 18 }}>
+              Once you set your goals, Nova keeps a memory of each one here.
+            </Text>
+          )}
+
+          <Text style={memSubLabel}>LEARNED FROM YOUR CHATS</Text>
           {(profile.coachMemory?.facts || []).length ? (
             <>
               <View style={{ gap: 8 }}>
@@ -153,10 +173,23 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
                 ))}
               </View>
               <Pressable
-                onPress={() => onUpdate({ ...profile, coachMemory: null })}
+                onPress={() =>
+                  onUpdate({
+                    ...profile,
+                    // Erase the facts but KEEP the distillation watermark at the
+                    // current conversation position — otherwise the next
+                    // distillation would re-learn the erased facts from the
+                    // retained chat history and they'd silently resurrect.
+                    coachMemory: {
+                      facts: [],
+                      distilledAtCount: (profile.coachHistory || []).filter((m) => m.from === 'user').length,
+                      updatedAt: new Date().toISOString(),
+                    },
+                  })
+                }
                 style={{ marginTop: 14, alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: C.lineStrong }}
               >
-                <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>Forget everything</Text>
+                <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>Reset chat memories</Text>
               </Pressable>
             </>
           ) : (
@@ -164,6 +197,9 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
               As you chat, Nova remembers the things that matter — your work, your wins, what you're working through — so you never have to repeat yourself. What Nova learns shows up here.
             </Text>
           )}
+          <Text style={{ fontFamily: F.body, fontSize: 11, color: C.faint, marginTop: 12, lineHeight: 16 }}>
+            Resetting only clears what Nova learned in conversation. Your goals and Nova's coaching style always stay.
+          </Text>
         </Section>
 
         {/* AI features are powered by NorthStar's own backend — no user API key needed. */}
@@ -249,6 +285,8 @@ function Section({ label, children }) {
     </View>
   )
 }
+
+const memSubLabel = { fontFamily: F.display, fontSize: 9.5, color: C.faint, letterSpacing: 1.8, marginBottom: 10 }
 
 const inputStyle = {
   backgroundColor: C.lineSoft,

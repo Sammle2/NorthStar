@@ -391,6 +391,7 @@ Return ONLY JSON:
 export async function distillCoachMemory({ profile, history = [] }) {
   const firstName = (profile?.name || '').split(' ')[0] || 'they'
   const existing = (profile?.coachMemory?.facts || []).map((f) => `- ${f.text}`).join('\n')
+  const formalGoals = (profile?.goals || []).map((g) => `- "${g.title}"`).join('\n')
   const recent = history
     .slice(-16)
     .map((m) => `${m.from === 'coach' ? 'Nova' : firstName}: ${m.text}`)
@@ -401,15 +402,19 @@ export async function distillCoachMemory({ profile, history = [] }) {
 Current memory:
 ${existing || '(empty)'}
 
+Their formal goals (already remembered elsewhere — do NOT restate these as facts):
+${formalGoals || '(none)'}
+
 Recent conversation:
 ${recent || '(none)'}
 
 Rewrite the memory as an updated list of AT MOST 15 short facts about ${firstName} that will still matter weeks from now: personal context they shared (work, family, health, upcoming events), preferences, recurring struggles, wins, and commitments. Merge duplicates, update anything stale, and drop small talk. Rules:
 - ONLY facts ${firstName} actually stated — never inferred or invented.
+- Do NOT store facts that merely restate their formal goals or roadmap — the app remembers their goals separately and permanently; keep only context AROUND the goals (why it matters to them, obstacles, who's involved).
 - No sensitive inferences (diagnoses, politics, religion) unless they said it explicitly and it matters for coaching.
 - Each fact is one plain sentence, no names of third parties beyond what they shared.
 
-Return ONLY a JSON array of strings, e.g. ["Works in sales at a startup", "Training for a June half marathon"]. Return [] if nothing is worth remembering. No prose, no code fences.`
+Return ONLY a JSON array of strings, e.g. ["Works in sales at a startup", "Feels most motivated right after morning workouts"]. Return [] if nothing is worth remembering. No prose, no code fences.`
 
   try {
     const res = await callClaude(prompt, 700)
@@ -463,7 +468,7 @@ export async function coachRespond({ profile, history = [], userText }) {
     .map((m) => `${m.from === 'coach' ? 'Nova' : firstName}: ${m.text}`)
     .join('\n')
   const goalList = goals.length
-    ? goals.map((g) => `- id:${g.id} | "${g.title}"${g === primary ? ' (primary)' : ''}`).join('\n')
+    ? goals.map((g) => `- id:${g.id} | "${g.title}" | ${Math.round(g.progress || 0)}% complete${g === primary ? ' (primary)' : ''}`).join('\n')
     : '(no goals yet)'
   // Long-term memory: distilled facts about THIS user from all their past chats
   // (profile.coachMemory, maintained by distillCoachMemory below). This is what

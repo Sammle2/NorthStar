@@ -48,10 +48,60 @@ export default function CoachChat({ profile, onUpdate }) {
 
   // Persist the conversation onto the profile (capped) so NOVA's memory survives
   // tab switches, reloads, and syncs to the cloud. Uses the functional updater so
-  // it MERGES onto the latest profile (never reverts a concurrent edit).
+  // it MERGES onto the latest profile (never reverts a concurrent edit). Every
+  // write stamps coachLastChatAt — the session clock below runs off it.
   const persistHistory = (msgs) => {
-    onUpdate((prof) => ({ ...prof, coachHistory: msgs.slice(-60) }))
+    onUpdate((prof) => ({ ...prof, coachHistory: msgs.slice(-60), coachLastChatAt: new Date().toISOString() }))
   }
+
+  // Chat SESSIONS, like Claude: within a session Nova sees the whole thread;
+  // after this many hours of inactivity the ended conversation is distilled into
+  // long-term memory and the chat opens fresh — Nova still remembers what
+  // mattered, without one endless thread forever.
+  const SESSION_RESET_HOURS = 12
+  useEffect(() => {
+    const prof = profileRef.current
+    const saved = prof.coachHistory
+    const lastAt = prof.coachLastChatAt
+    if (!Array.isArray(saved) || saved.length < 2 || !lastAt) return
+    const idleMs = Date.now() - new Date(lastAt).getTime()
+    if (!(idleMs > SESSION_RESET_HOURS * 3600 * 1000)) return
+
+    // Start the fresh session immediately (memory-aware welcome when Nova
+    // actually remembers something).
+    const hasMemory = (prof.coachMemory?.facts || []).length > 0
+    const reintro = hasMemory
+      ? `Welcome back, ${firstName} — fresh page, same me. I remember where we left off. What's on your mind?`
+      : (COACH_MESSAGES[prof.coachTone]?.intro || COACH_MESSAGES.default.intro).replace('{name}', firstName)
+    const fresh = [{ id: '0', from: 'coach', text: reintro, time: nowTime() }]
+    setMessages(fresh)
+    onUpdate((p) => ({ ...p, coachHistory: fresh, coachLastChatAt: new Date().toISOString() }))
+
+    // Hand the ENDED session off to long-term memory in the background — only
+    // the part after the last distillation watermark, so nothing is processed
+    // twice and a reset-then-idle can't resurrect erased facts.
+    const watermark = prof.coachMemory?.distilledAtCount || 0
+    const startIdx = (() => {
+      let c = 0
+      for (let i = 0; i < saved.length; i++) {
+        if (saved[i].from === 'user') c++
+        if (c > watermark) return i
+      }
+      return saved.length
+    })()
+    const ended = saved.slice(startIdx)
+    if (!ended.some((m) => m.from === 'user')) return
+    ;(async () => {
+      try {
+        const facts = await distillCoachMemory({ profile: prof, history: ended })
+        if (facts && (facts.length || !(prof.coachMemory?.facts || []).length)) {
+          onUpdate((p) => ({ ...p, coachMemory: { facts, distilledAtCount: 0, updatedAt: new Date().toISOString() } }))
+        }
+      } catch (e) {
+        console.warn('[Coach] end-of-session distill failed:', e?.message)
+      }
+    })()
+  }, [])
 
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))
@@ -93,7 +143,7 @@ export default function CoachChat({ profile, onUpdate }) {
     // change is applied against the current goals, not the pre-send snapshot.
     onUpdate((prof) => {
       const nextGoals = action ? applyGoalAction(prof.goals, action) : null
-      return { ...prof, ...(nextGoals ? { goals: nextGoals } : {}), coachHistory: withReply.slice(-60) }
+      return { ...prof, ...(nextGoals ? { goals: nextGoals } : {}), coachHistory: withReply.slice(-60), coachLastChatAt: new Date().toISOString() }
     })
     // A chat-added goal starts as an instant local template; upgrade it in the
     // background to a Nova-built roadmap specific to that goal.
@@ -129,12 +179,27 @@ export default function CoachChat({ profile, onUpdate }) {
   const maybeDistill = async (msgs, force = false) => {
     const prof = profileRef.current
     const userCount = msgs.filter((m) => m.from === 'user').length
-    const lastAt = prof.coachMemory?.distilledAtCount || 0
-    if (distilling.current || (!force && userCount - lastAt < DISTILL_EVERY)) return
+    const watermark = prof.coachMemory?.distilledAtCount || 0
+    if (distilling.current || (!force && userCount - watermark < DISTILL_EVERY)) return
+    // Only feed the conversation AFTER the watermark: nothing is processed twice,
+    // and a "Reset chat memories" (which parks the watermark at the current
+    // position) can never resurrect erased facts from older messages.
+    const startIdx = (() => {
+      let c = 0
+      for (let i = 0; i < msgs.length; i++) {
+        if (msgs[i].from === 'user') c++
+        if (c > watermark) return i
+      }
+      return msgs.length
+    })()
+    const freshSlice = msgs.slice(startIdx)
+    if (!freshSlice.some((m) => m.from === 'user')) return // nothing new to learn from
     distilling.current = true
     try {
-      const facts = await distillCoachMemory({ profile: prof, history: msgs })
-      if (facts) {
+      const facts = await distillCoachMemory({ profile: prof, history: freshSlice })
+      // Never let an empty result WIPE existing memory — the model merges old +
+      // new, so empty is only trustworthy when there was nothing there before.
+      if (facts && (facts.length || !(prof.coachMemory?.facts || []).length)) {
         onUpdate((p) => ({
           ...p,
           coachMemory: { facts, distilledAtCount: userCount, updatedAt: new Date().toISOString() },
@@ -154,7 +219,7 @@ export default function CoachChat({ profile, onUpdate }) {
     setShowToneMenu(false)
     const next = [...messages, { id: nid(), from: 'coach', text: COACH_MESSAGES[tone].toneConfirm, time: nowTime() }]
     setMessages(next)
-    onUpdate((prof) => ({ ...prof, coachTone: tone, coachHistory: next.slice(-60) }))
+    onUpdate((prof) => ({ ...prof, coachTone: tone, coachHistory: next.slice(-60), coachLastChatAt: new Date().toISOString() }))
   }
 
   return (

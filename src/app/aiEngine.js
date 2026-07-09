@@ -180,6 +180,20 @@ const UNATTAINABLE = [
   { re: /\b(change my past|undo the past|different person entirely|be someone else)\b/i, what: 'change the past' },
 ]
 
+// One general sentence Nova remembers about each goal — derived fresh from the
+// profile every time, so it always matches this account's goals (including the
+// goal from the intake form, goals Nova added in chat, edits, and progress).
+// These are PERMANENT memory: clearing chat memories never touches them, and
+// Nova's coaching rules live in its prompt, so neither can be wiped.
+export function goalMemories(profile) {
+  const first = (profile?.name || 'They').split(' ')[0]
+  return (profile?.goals || []).map((g) => {
+    const pct = Math.round(g.progress || 0)
+    const status = pct >= 100 ? 'achieved it' : pct > 0 ? `${pct}% of the way there` : 'just getting started'
+    return `${first} is working toward “${g.title}” — ${status}.`
+  })
+}
+
 // Throwaway non-answers the goal gate must never accept, no matter the attempt.
 const NON_ANSWERS = new Set([
   'idk', 'dunno', 'nothing', 'none', 'whatever', 'anything', 'something', 'stuff', 'things',

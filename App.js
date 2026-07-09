@@ -44,6 +44,7 @@ import CoachReview from './src/app/components/CoachReview'
 import GoalEditor from './src/app/components/GoalEditor'
 import ErrorBoundary from './src/app/components/ErrorBoundary'
 import StarField from './src/app/components/StarField'
+import { LegalPage } from './src/app/components/LegalDocs'
 import { establishSessionFromUrl, onAuthStateChange, resendConfirmation, signOut as supabaseSignOut, signUpWithEmail } from './src/services/supabaseAuth'
 import { isUsernameAvailable } from './src/services/socialService'
 import { COACH_MESSAGES, normalizeAiGoal } from './src/app/aiEngine'
@@ -539,6 +540,17 @@ export default function App() {
     const goals = p.goals.map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
     persist({ ...appState, profile: { ...p, goals } })
     setEditingGoal(null)
+  }
+
+  // Public legal pages — /terms and /privacy render standalone with NO login and
+  // without booting the app state machine, so they can be linked from an app-store
+  // listing or marketing site. Web only; path is read once at render.
+  const legalPath = Platform.OS === 'web' && typeof window !== 'undefined'
+    ? window.location.pathname.replace(/\/+$/, '').toLowerCase()
+    : ''
+  if (legalPath === '/terms' || legalPath === '/privacy') {
+    if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: C.bg }} />
+    return <LegalPage doc={legalPath === '/terms' ? 'terms' : 'privacy'} />
   }
 
   if (!fontsLoaded || !booted) return <View style={{ flex: 1, backgroundColor: C.bg }} />

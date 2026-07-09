@@ -196,6 +196,9 @@ export const extendedProfileSchema = {
   // Nova's long-term memory: { facts: [{text}], distilledAtCount, updatedAt } —
   // distilled from chats (aiService.distillCoachMemory), synced per user.
   coachMemory: null,
+  // When the user last chatted with Nova — drives the Claude-style session
+  // reset (idle sessions are distilled into memory, then the chat opens fresh).
+  coachLastChatAt: null,
 
   // Non-negotiables
   nonNeg: {}, // { dateKey: [{ time, title, completed }, ...] }
