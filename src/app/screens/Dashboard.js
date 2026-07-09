@@ -9,7 +9,7 @@ import { currentStreak, getGreeting, todayKey, yesterdayKey } from '../store'
 
 // Screen 4 — the home. A clean, emoji-free checklist of exactly three
 // non-negotiables for today. Hit all three and the day's streak is locked in.
-export default function Dashboard({ profile, onUpdate, onOpenSettings }) {
+export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoach }) {
   const firstName = profile.name.split(' ')[0]
   const today = todayKey()
   const todayNN = profile.nonNeg?.[today]
@@ -172,12 +172,19 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings }) {
 
       {/* Coach check-in line */}
       <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderRadius: 16, padding: 16, backgroundColor: 'rgba(124,58,237,0.1)', borderWidth: 1, borderColor: C.lineMid }}>
+        {/* Nova's check-in — tap to open the chat and reply */}
+        <Pressable
+          onPress={onOpenCoach}
+          style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderRadius: 16, padding: 16, backgroundColor: pressed ? 'rgba(124,58,237,0.18)' : 'rgba(124,58,237,0.1)', borderWidth: 1, borderColor: pressed ? C.violet : C.lineMid })}
+        >
           <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(124,58,237,0.3)' }}>
             <Zap size={15} color={C.violet} strokeWidth={2.2} />
           </View>
-          <Text style={{ flex: 1, fontFamily: F.body, fontSize: 13.5, color: C.ink2, lineHeight: 21 }}>{checkInMessage}</Text>
-        </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink2, lineHeight: 21 }}>{checkInMessage}</Text>
+            <Text style={{ fontFamily: F.semibold, fontSize: 12, color: C.violet, marginTop: 8 }}>Reply to {profile.coachName || 'Nova'} →</Text>
+          </View>
+        </Pressable>
       </View>
 
     </ScrollView>
