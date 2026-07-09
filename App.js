@@ -46,7 +46,8 @@ import ErrorBoundary from './src/app/components/ErrorBoundary'
 import StarField from './src/app/components/StarField'
 import { establishSessionFromUrl, onAuthStateChange, resendConfirmation, signOut as supabaseSignOut, signUpWithEmail } from './src/services/supabaseAuth'
 import { isUsernameAvailable } from './src/services/socialService'
-import { COACH_MESSAGES } from './src/app/aiEngine'
+import { COACH_MESSAGES, normalizeAiGoal } from './src/app/aiEngine'
+import { generateRoadmap } from './src/services/aiService'
 import { requestNotificationPermission, scheduleDailyCheckIn, cancelDailyCheckIn, onNotification } from './src/services/notificationService'
 import { Bell } from 'lucide-react-native'
 
@@ -265,6 +266,42 @@ export default function App() {
     const t = setTimeout(() => setBanner(null), 6000)
     return () => clearTimeout(t)
   }, [banner])
+
+  // Upgrade template goals to goal-specific AI roadmaps in the background: the
+  // primary goal and chat-added goals already get the AI treatment, but survey
+  // supporting goals (and older accounts) carry generic local scaffolds. Once
+  // per session, every UNTOUCHED template goal (no progress, no completed steps)
+  // is rebuilt from its own title — milestones AND daily actions become specific,
+  // which also feeds the Today tab's three tasks. Failures just keep the template.
+  const goalsUpgradedRef = useRef(false)
+  useEffect(() => {
+    if (screen !== 'app' || !hasSession || goalsUpgradedRef.current) return
+    const untouched = (g) =>
+      g.source !== 'ai' && (g.progress || 0) === 0 &&
+      !(g.milestones || []).some((m) => m.completed || (m.steps || []).some((s) => s.completed))
+    const candidates = (appStateRef.current?.profile?.goals || []).filter(untouched)
+    if (!candidates.length) { goalsUpgradedRef.current = true; return }
+    goalsUpgradedRef.current = true
+    ;(async () => {
+      for (const g of candidates) {
+        try {
+          const ai = await generateRoadmap({
+            name: appStateRef.current?.profile?.name,
+            rawGoal: g.title,
+            tone: appStateRef.current?.profile?.coachTone,
+          })
+          updateProfile((prof) => {
+            const target = (prof.goals || []).find((x) => x.id === g.id)
+            if (!target || !untouched(target)) return prof // deleted or started meanwhile
+            const upgraded = normalizeAiGoal(ai, target.title, '', target.id)
+            return { ...prof, goals: prof.goals.map((x) => (x.id === g.id ? { ...upgraded, title: target.title } : x)) }
+          })
+        } catch (e) {
+          console.warn('[Goals] AI upgrade failed for', g.title, '- keeping template:', e?.message)
+        }
+      }
+    })()
+  }, [screen, hasSession])
 
   // Schedule the daily 1pm "quick check" once the user is in the app. The message
   // text is resolved at fire time so it reflects the current tone / streak.

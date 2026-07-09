@@ -438,7 +438,9 @@ export function buildGoal(rawGoal, extra = '', id = `goal-${Math.random().toStri
   const tmpl = theme && DOMAIN_TEMPLATES[theme]
   const milestones = buildMilestones(theme, title, true)
   const actions = tmpl ? tmpl.dailyActions : ['Take one real step toward your goal', 'Remove one obstacle in your way', 'Reflect on what moved the needle']
-  return { id, title, category: tmpl ? tmpl.category : 'mindset', progress: 0, milestones, dailyActions: mkActions(actions) }
+  // source:'template' marks this as a local scaffold — the app upgrades untouched
+  // template goals to goal-specific AI roadmaps in the background (App.js).
+  return { id, title, category: tmpl ? tmpl.category : 'mindset', progress: 0, source: 'template', milestones, dailyActions: mkActions(actions) }
 }
 
 // Regenerate the milestones (+ stepping stones) for a goal title — the "redo" /
@@ -489,7 +491,7 @@ export function normalizeAiGoal(ai, rawGoal, extra = '', id = 'goal-primary') {
     daily.length ? daily : ['Take one real step toward your goal', 'Remove one obstacle in your way', 'Reflect on what moved the needle'],
   )
 
-  return { id, title, category, progress: 0, milestones, dailyActions }
+  return { id, title, category, progress: 0, source: 'ai', milestones, dailyActions }
 }
 
 const buildPrimaryGoal = (rawGoal, extra) => buildGoal(rawGoal, extra, 'goal-primary')
@@ -538,7 +540,17 @@ export const NN_TIME_OPTIONS = [
 ]
 
 export function generateNonNegotiables(profile) {
-  const fromGoals = (profile.goals || []).map((g) => (g.dailyActions || [])[0]?.title).filter(Boolean)
+  // Rotate through each goal's daily actions by calendar day, so today's three
+  // tasks stay specific to the goals AND vary day to day instead of repeating
+  // the first action forever.
+  const now = new Date()
+  const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000)
+  const fromGoals = (profile.goals || [])
+    .map((g, gi) => {
+      const acts = (g.dailyActions || []).map((a) => a?.title).filter(Boolean)
+      return acts.length ? acts[(dayOfYear + gi) % acts.length] : null
+    })
+    .filter(Boolean)
   const picked = []
   for (const t of fromGoals) {
     if (picked.length >= 3) break
