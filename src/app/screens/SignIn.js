@@ -5,8 +5,8 @@ import { ArrowRight, Eye, EyeOff, Mail, LogIn } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { signInWithEmail, signInWithApple, signInWithGoogle, resetPassword } from '../../services/supabaseAuth'
 
-export default function SignIn({ onSignInSuccess, onSwitchToSignUp, profile }) {
-  const [email, setEmail] = useState('')
+export default function SignIn({ onSignInSuccess, onSwitchToSignUp, profile, notice, prefillEmail }) {
+  const [email, setEmail] = useState(prefillEmail || '')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -166,6 +166,13 @@ export default function SignIn({ onSignInSuccess, onSwitchToSignUp, profile }) {
           <Text style={{ fontFamily: F.body, fontSize: 14, color: C.dim, marginBottom: 32, lineHeight: 21 }}>
             Sign in to access your dream and track your progress.
           </Text>
+
+          {/* Routed-here notice (e.g. intake email already has an account) */}
+          {notice && !error && (
+            <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.3)' }}>
+              <Text style={{ fontFamily: F.body, fontSize: 13, color: C.amber, lineHeight: 19 }}>{notice}</Text>
+            </View>
+          )}
 
           {/* Error */}
           {error && (

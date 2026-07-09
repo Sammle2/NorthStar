@@ -86,6 +86,10 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(true)
   const [authUser, setAuthUser] = useState(null)
   const [authSubScreen, setAuthSubScreen] = useState('signin') // 'signin' or 'signup'
+  // Notice + prefill shown on the Sign-in screen when we route someone there
+  // (e.g. quick-start intake with an email that already has an account).
+  const [authNotice, setAuthNotice] = useState(null)
+  const [authPrefillEmail, setAuthPrefillEmail] = useState('')
   const [isSyncing, setIsSyncing] = useState(false)
   const [lastSyncAt, setLastSyncAt] = useState(null)
   const [syncError, setSyncError] = useState(false)
@@ -410,7 +414,13 @@ export default function App() {
       const { user, needsConfirmation, error } = await signUpWithEmail(email, password, { username, name })
       if (error || !user) {
         if (/already registered|already been registered|already exists/i.test(error || '')) {
-          return 'An account with this email already exists — go back and tap “Sign in”.'
+          // Known account → don't dead-end the intake: take them straight to
+          // Sign in with their email prefilled and a clear notice.
+          setAuthNotice('This e-mail is already associated with an account.')
+          setAuthPrefillEmail(email)
+          setAuthSubScreen('signin')
+          setScreen('auth')
+          return 'This e-mail is already associated with an account.'
         }
         return error || 'Could not create your account. Try again.'
       }
@@ -556,7 +566,13 @@ export default function App() {
       {screen === 'auth' && (
         <>
           {authSubScreen === 'signin' ? (
-            <SignIn onSignInSuccess={handleSignInSuccess} onSwitchToSignUp={() => setAuthSubScreen('signup')} profile={appState.profile} />
+            <SignIn
+              onSignInSuccess={(u) => { setAuthNotice(null); setAuthPrefillEmail(''); handleSignInSuccess(u) }}
+              onSwitchToSignUp={() => { setAuthNotice(null); setAuthSubScreen('signup') }}
+              profile={appState.profile}
+              notice={authNotice}
+              prefillEmail={authPrefillEmail}
+            />
           ) : (
             <SignUp onSignUpSuccess={handleSignUpSuccess} onSwitchToSignIn={() => setAuthSubScreen('signin')} />
           )}
