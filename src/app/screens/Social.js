@@ -25,6 +25,9 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
   const [posting, setPosting] = useState(false)
+  // Pending friend requests addressed to me — drives the badge + banner so an
+  // incoming request is impossible to miss.
+  const [incomingCount, setIncomingCount] = useState(0)
 
   // My streak + overall progress toward the dream (avg of goal progress) — shown
   // under my own posts. Friends' posts show their streak from the public projection.
@@ -36,9 +39,12 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
 
   const load = async (which = feed) => {
     setLoading(true)
+    // Friendships load on BOTH segments — the feed needs them on "My Friends",
+    // and the pending-request badge/banner must show no matter where you are.
+    const fs = await getFriendships()
+    setIncomingCount(fs.filter((f) => f.status !== 'accepted' && f.addressee_id === myId).length)
     let rows
     if (which === 'friends') {
-      const fs = await getFriendships()
       // Only ACCEPTED friendships where I am actually a party. The RLS policy
       // already guarantees this server-side; this keeps the friends feed correct
       // even if that policy ever loosens — a stranger's public post must never
@@ -103,10 +109,29 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
 
         <Pressable onPress={onOpenAddFriends} hitSlop={10} style={iconBtn}>
           <UserPlus size={20} color={C.ink} strokeWidth={2.2} />
+          {incomingCount > 0 && (
+            <View style={{ position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: C.amber, borderWidth: 1.5, borderColor: C.bg }}>
+              <Text style={{ fontFamily: F.bold, fontSize: 10.5, color: C.amberInk }}>{incomingCount}</Text>
+            </View>
+          )}
         </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120, maxWidth: 600, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
+        {/* Pending friend requests — tap to review & accept */}
+        {incomingCount > 0 && (
+          <Pressable
+            onPress={onOpenAddFriends}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12, marginBottom: 4, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: 'rgba(245,158,11,0.10)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)' }}
+          >
+            <UserPlus size={17} color={C.amber} strokeWidth={2.4} />
+            <Text style={{ flex: 1, fontFamily: F.semibold, fontSize: 13.5, color: C.amber }}>
+              {incomingCount === 1 ? '1 friend request waiting' : `${incomingCount} friend requests waiting`}
+            </Text>
+            <Text style={{ fontFamily: F.bold, fontSize: 12.5, color: C.amberInk, backgroundColor: C.amber, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, overflow: 'hidden' }}>Review</Text>
+          </Pressable>
+        )}
+
         {/* Composer */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
           <Avatar url={profile.avatarUrl} name={profile.name} username={profile.username} size={40} />
