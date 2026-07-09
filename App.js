@@ -21,7 +21,7 @@ if (Platform.OS !== 'web') {
 }
 
 import { C, F } from './src/app/tokens'
-import { clearState, loadState, reviewDue, saveState } from './src/app/store'
+import { clearState, currentStreak, loadState, reviewDue, saveState } from './src/app/store'
 import { flushState, pullState, resetPushCache } from './src/services/cloudSync'
 import { resetProfilePushCache } from './src/services/socialService'
 import * as Linking from 'expo-linking'
@@ -272,7 +272,7 @@ export default function App() {
       const tone = prof.coachTone || 'default'
       const first = (prof.name || '').split(' ')[0] || 'there'
       const body = (COACH_MESSAGES[tone]?.checkIn || COACH_MESSAGES.default.checkIn)
-        .replace('{streak}', String(prof.streak || 0))
+        .replace('{streak}', String(currentStreak(prof)))
         .replace('{name}', first)
       return { title: prof.coachName || 'Nova', body }
     })

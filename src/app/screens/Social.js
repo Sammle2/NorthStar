@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { Flame, Heart, MessageCircle, Send, TrendingUp, UserPlus, Users } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
+import { currentStreak } from '../store'
 import { getFriendships, saveProfileNow } from '../../services/socialService'
 import { getFriendsFeed, getPublicFeed, createPost, toggleLike } from '../../services/feedService'
 
@@ -27,7 +28,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
 
   // My streak + overall progress toward the dream (avg of goal progress) — shown
   // under my own posts. Friends' posts show their streak from the public projection.
-  const myStreak = profile.streak || 0
+  const myStreak = currentStreak(profile)
   const myDreamPct = useMemo(() => {
     const gs = profile.goals || []
     return gs.length ? Math.round(gs.reduce((s, g) => s + (g.progress || 0), 0) / gs.length) : 0

@@ -5,7 +5,7 @@ import { C, F } from '../tokens'
 import GlowProgress from '../components/GlowProgress'
 import StreakBadge from '../components/StreakBadge'
 import { COACH_MESSAGES, NN_TIME_OPTIONS, generateNonNegotiables } from '../aiEngine'
-import { daysSinceJoined, getGreeting, todayKey } from '../store'
+import { currentStreak, getGreeting, todayKey, yesterdayKey } from '../store'
 
 // Screen 4 — the home. A clean, emoji-free checklist of exactly three
 // non-negotiables for today. Hit all three and the day's streak is locked in.
@@ -23,18 +23,32 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings }) {
     }
   }, [todayNN])
 
+  // A missed day breaks the chain: if the last banked day is neither today nor
+  // yesterday, persist the reset so every reader of profile.streak (posts, Nova,
+  // the public projection) sees the truth, not a stale count.
+  useEffect(() => {
+    if ((profile.streak || 0) > 0 && profile.lastCheckIn !== today && profile.lastCheckIn !== yesterdayKey()) {
+      onUpdate({ ...profile, streak: 0, lastCheckIn: null })
+    }
+  }, [today, profile.lastCheckIn])
+
   const list = todayNN || []
   const doneCount = list.filter((n) => n.completed).length
 
   const toggle = (id) => {
     const next = list.map((n) => (n.id === id ? { ...n, completed: !n.completed } : n))
     let updated = { ...profile, nonNeg: { ...profile.nonNeg, [today]: next } }
-    // Streak goes up at most ONCE per day: only on the first time all three are
-    // done today. lastCheckIn === today means today's streak is already banked,
-    // so toggling on/off afterward can never add to it again.
     const allDone = next.length === 3 && next.every((n) => n.completed)
     if (allDone && profile.lastCheckIn !== today) {
-      updated = { ...updated, streak: profile.streak + 1, lastCheckIn: today }
+      // Bank today: +1 on an unbroken chain (last banked day was yesterday);
+      // otherwise this is a fresh start and the streak begins again at 1.
+      updated = { ...updated, streak: currentStreak(profile) + 1, lastCheckIn: today }
+    } else if (!allDone && profile.lastCheckIn === today) {
+      // De-selecting after today was banked takes the day back: the streak
+      // steps down and the chain now ends yesterday (or nowhere, if that was
+      // the only day).
+      const stepped = Math.max(0, (profile.streak || 0) - 1)
+      updated = { ...updated, streak: stepped, lastCheckIn: stepped > 0 ? yesterdayKey() : null }
     }
     onUpdate(updated)
   }
@@ -46,7 +60,7 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings }) {
   }
 
   const checkInMessage = COACH_MESSAGES[profile.coachTone].checkIn
-    .replace('{streak}', String(profile.streak))
+    .replace('{streak}', String(currentStreak(profile)))
     .replace('{name}', firstName)
 
   return (
@@ -64,7 +78,7 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings }) {
             <Pressable onPress={onOpenSettings} hitSlop={10}>
               <SettingsIcon size={20} color={C.faint} strokeWidth={2} />
             </Pressable>
-            <StreakBadge streak={daysSinceJoined(profile)} size="sm" />
+            <StreakBadge streak={currentStreak(profile)} size="sm" />
           </View>
         </View>
 

@@ -43,8 +43,32 @@ export async function clearState() {
   } catch {}
 }
 
+// Day keys use LOCAL date components — toISOString() is UTC, which would put an
+// evening check-in on tomorrow's date for anyone west of Greenwich.
+function dateKeyOf(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 export function todayKey() {
-  return new Date().toISOString().split('T')[0]
+  return dateKeyOf(new Date())
+}
+export function yesterdayKey() {
+  const d = new Date()
+  d.setDate(d.getDate() - 1)
+  return dateKeyOf(d)
+}
+
+// The user's LIVE streak: consecutive days where all three non-negotiables were
+// completed. profile.streak is only trustworthy while the chain is unbroken —
+// if the last banked day is neither today nor yesterday, a day was missed and
+// the real streak is 0. (Yesterday still counts: today is still in progress.)
+export function currentStreak(profile) {
+  const last = profile?.lastCheckIn
+  if (!last) return 0
+  if (last !== todayKey() && last !== yesterdayKey()) return 0
+  return profile.streak || 0
 }
 
 export function getGreeting() {
