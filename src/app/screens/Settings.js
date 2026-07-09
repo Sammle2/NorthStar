@@ -6,6 +6,7 @@ import CoachAvatar from '../components/CoachAvatar'
 import Avatar from '../components/Avatar'
 import EditProfile from '../components/EditProfile'
 import SyncStatus from '../components/SyncStatus'
+import LegalDocs from '../components/LegalDocs'
 import { capName } from '../aiEngine'
 import { deleteAccount } from '../../services/accountService'
 
@@ -194,6 +195,11 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
             </Text>
           </Section>
         )}
+
+        {/* Legal — tap a document to expand and read it in place */}
+        <Section label="LEGAL">
+          <LegalDocs />
+        </Section>
 
         {/* Danger */}
         <Section label="DANGER ZONE">
