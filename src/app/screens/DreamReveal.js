@@ -53,8 +53,17 @@ function useTypewriter(text, speed = 18, startDelay = 400, active = true) {
 export default function DreamReveal({ profile, onContinue }) {
   const [phase, setPhase] = useState('intro') // intro | story | cta
   const firstName = profile.name.split(' ')[0]
+  // Strip any markdown the AI emitted (**bold**, *italic*, _under_, `code`) so the
+  // story reads as clean prose — React Native Text shows those markers literally,
+  // and stray asterisks broke the otherwise-uniform styling.
+  const story = (profile.dreamStory || '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/[*_`]/g, '')
   // Typing speed slowed 50% (16ms → 24ms/char) so the future sinks in.
-  const { displayed, done, skip } = useTypewriter(profile.dreamStory, 24, 300, phase !== 'intro')
+  const { displayed, done, skip } = useTypewriter(story, 24, 300, phase !== 'intro')
   const typed = displayed.split('\n\n').filter(Boolean)
   // Graceful fallback so the body is never blank when there's no generated story.
   const paragraphs = typed.length
@@ -134,11 +143,14 @@ export default function DreamReveal({ profile, onContinue }) {
               <Text
                 key={i}
                 style={{
-                  fontFamily: i === 0 ? F.body : F.body,
+                  // One consistent font the whole way through — no italic on the
+                  // first paragraph (Inter ships no italic face, so italic here
+                  // renders as a synthesized slant that looks like a different
+                  // font). Emphasis on the opening line stays via color only.
+                  fontFamily: F.body,
                   fontSize: 16.5,
                   lineHeight: 30,
                   color: i === 0 ? C.ink : C.ink3,
-                  fontStyle: i === 0 ? 'italic' : 'normal',
                 }}
               >
                 {para}

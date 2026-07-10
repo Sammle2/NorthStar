@@ -252,6 +252,7 @@ Rules:
 - 2 to 3 short paragraphs, separated by a blank line.
 - Second person ("you"). No greeting, no sign-off, no preamble, no quotation marks around the whole thing.
 - Concrete and sensory, not vague platitudes.
+- Plain prose only — NO markdown, no asterisks or underscores for emphasis, no formatting characters.
 Return ONLY the story text.`
 
   const text = await callClaude(prompt, 700)
