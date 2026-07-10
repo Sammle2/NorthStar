@@ -22,6 +22,7 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
   const [name, setName] = useState(profile.name)
   const [coachName, setCoachName] = useState(profile.coachName || 'Nova')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [confirmingReset, setConfirmingReset] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
   const [editingProfile, setEditingProfile] = useState(false)
@@ -239,11 +240,40 @@ export default function Settings({ profile, onUpdate, onClose, onReset, onSignOu
 
         {/* Danger */}
         <Section label="DANGER ZONE">
-          <Pressable onPress={onReset} style={{ borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)', backgroundColor: 'rgba(239,68,68,0.06)' }}>
+          <Pressable onPress={() => setConfirmingReset(true)} style={{ borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)', backgroundColor: 'rgba(239,68,68,0.06)' }}>
             <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.red }}>Reset & start over</Text>
           </Pressable>
+          <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginTop: 8 }}>
+            Deletes your dream, goals, progress, and Nova's memory, then takes you back through setup. Your account, sign-in, and friends stay.
+          </Text>
         </Section>
       </ScrollView>
+
+      {/* Reset confirmation — deletes the journey (account + friends survive) */}
+      {confirmingReset && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(7,7,15,0.82)', alignItems: 'center', justifyContent: 'center', padding: 28, zIndex: 300 }}>
+          <View style={{ width: '100%', maxWidth: 420, borderRadius: 20, padding: 22, backgroundColor: C.card, borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <View style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239,68,68,0.14)' }}>
+                <AlertTriangle size={17} color={C.red} strokeWidth={2.2} />
+              </View>
+              <Text style={{ fontFamily: F.display, fontSize: 14, color: C.ink, letterSpacing: 1 }}>START OVER?</Text>
+            </View>
+            <Text style={{ fontFamily: F.body, fontSize: 14, color: C.ink2 || C.ink, lineHeight: 21, marginBottom: 6 }}>
+              This permanently deletes your dream, goals, progress, streak, chats, and Nova's memory — then walks you through setup as a fresh start. It can't be undone.
+            </Text>
+            <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim, lineHeight: 19 }}>
+              Your account stays: sign in with the same email and password, and your username and friends are untouched.
+            </Text>
+            <Pressable onPress={() => { setConfirmingReset(false); onReset() }} style={{ borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 20, marginBottom: 10, backgroundColor: C.red }}>
+              <Text style={{ fontFamily: F.bold, fontSize: 14, color: '#fff' }}>Delete my journey & start over</Text>
+            </Pressable>
+            <Pressable onPress={() => setConfirmingReset(false)} style={{ borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: C.lineStrong }}>
+              <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.dim }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       {/* Delete-account confirmation — destructive, requires explicit confirm */}
       {confirmingDelete && (

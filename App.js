@@ -529,8 +529,39 @@ export default function App() {
     setScreen('app')
   }
 
+  // Reset & start over: keep the ACCOUNT (email/password/username/avatar and
+  // friends), but permanently delete the journey — dream, goals, progress,
+  // streak, chats, and Nova's memory — locally AND in the cloud, then take the
+  // user back through the intake form like a brand-new user. Signing in later
+  // works normally and resumes from the fresh intake.
   const handleReset = async () => {
-    await handleSignOut()
+    const prof = appStateRef.current?.profile
+    if (!prof?.userId) {
+      // No account (shouldn't happen in practice) — just clear and go to welcome.
+      await handleSignOut()
+      return
+    }
+    const fresh = {
+      ...freshProfile({ id: prof.userId, email: prof.email }, prof.name, prof.username),
+      // Keep the social identity they built — only the journey resets.
+      avatarUrl: prof.avatarUrl || null,
+      bio: prof.bio || '',
+      visibility: prof.visibility || 'private',
+      pendingEmailConfirmation: prof.pendingEmailConfirmation,
+    }
+    const next = { profile: fresh, dreamRevealSeen: false }
+    persist(next)
+    // Overwrite the cloud row NOW so the old data is gone server-side too (not
+    // just hidden until the next autosave).
+    try {
+      await flushState(prof.userId, next)
+    } catch (e) {
+      console.warn('[Reset] cloud overwrite failed (will retry on autosave):', e?.message)
+    }
+    resetProfilePushCache()
+    setShowSettings(false)
+    setTab('dashboard')
+    setScreen('onboarding')
   }
   const handleReviewComplete = (profile) => {
     persist({ ...appState, profile })
