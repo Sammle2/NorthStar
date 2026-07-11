@@ -28,6 +28,8 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   // Pending friend requests addressed to me — drives the badge + banner so an
   // incoming request is impossible to miss.
   const [incomingCount, setIncomingCount] = useState(0)
+  // How many accepted friends I have — chooses which empty-state CTA to show.
+  const [friendCount, setFriendCount] = useState(0)
 
   // My streak + overall progress toward the dream (avg of goal progress) — shown
   // under my own posts. Friends' posts show their streak from the public projection.
@@ -43,16 +45,15 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
     // and the pending-request badge/banner must show no matter where you are.
     const fs = await getFriendships()
     setIncomingCount(fs.filter((f) => f.status !== 'accepted' && f.addressee_id === myId).length)
+    // Accepted friends where I'm actually a party — computed once, drives both
+    // the friends feed and the empty-state CTA.
+    const friendIds = fs
+      .filter((f) => f.status === 'accepted' && (f.requester_id === myId || f.addressee_id === myId))
+      .map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id))
+    setFriendCount(friendIds.length)
     let rows
     if (which === 'friends') {
-      // Only ACCEPTED friendships where I am actually a party. The RLS policy
-      // already guarantees this server-side; this keeps the friends feed correct
-      // even if that policy ever loosens — a stranger's public post must never
-      // ride into the My Friends tab through a polluted id list.
-      const ids = fs
-        .filter((f) => f.status === 'accepted' && (f.requester_id === myId || f.addressee_id === myId))
-        .map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id))
-      rows = await getFriendsFeed(ids, myId)
+      rows = await getFriendsFeed(friendIds, myId)
     } else {
       rows = await getPublicFeed(myId)
     }
@@ -94,27 +95,19 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      {/* Header: DMs · My Friends/Public · Add friends */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14 }}>
-        <Pressable onPress={onOpenDMs} hitSlop={10} style={iconBtn}>
-          <MessageCircle size={20} color={C.ink} strokeWidth={2.2} />
-        </Pressable>
+      {/* Header: labeled Messages · My Friends/Public · Add — captions so the two
+          entry points (chat + add friends) read as buttons, not decoration. */}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14 }}>
+        <HeaderAction icon={MessageCircle} label="Messages" onPress={onOpenDMs} />
 
-        <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center' }}>
+        <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', paddingTop: 8 }}>
           <View style={{ flexDirection: 'row', backgroundColor: C.lineSoft, borderRadius: 999, padding: 3, borderWidth: 1, borderColor: C.lineMid }}>
             <Seg label="My Friends" active={feed === 'friends'} onPress={() => setFeed('friends')} />
             <Seg label="Public" active={feed === 'public'} onPress={() => setFeed('public')} />
           </View>
         </View>
 
-        <Pressable onPress={onOpenAddFriends} hitSlop={10} style={iconBtn}>
-          <UserPlus size={20} color={C.ink} strokeWidth={2.2} />
-          {incomingCount > 0 && (
-            <View style={{ position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: C.amber, borderWidth: 1.5, borderColor: C.bg }}>
-              <Text style={{ fontFamily: F.bold, fontSize: 10.5, color: C.amberInk }}>{incomingCount}</Text>
-            </View>
-          )}
-        </Pressable>
+        <HeaderAction icon={UserPlus} label="Add" onPress={onOpenAddFriends} badge={incomingCount} />
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120, maxWidth: 600, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
@@ -158,10 +151,22 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
           <View style={{ alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 }}>
             <Users size={28} color={C.faint2} strokeWidth={1.8} />
             <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.faint, marginTop: 12, textAlign: 'center', lineHeight: 20 }}>
-              {feed === 'friends'
-                ? 'No posts yet. Share an update above, or add friends to see theirs.'
-                : 'No public posts yet. Be the first to share something with everyone.'}
+              {feed === 'public'
+                ? 'No public posts yet. Be the first to share something with everyone.'
+                : friendCount === 0
+                  ? 'Your friends’ updates show up here. Add a few to get started.'
+                  : 'No posts yet. Share an update above, or start a chat with a friend.'}
             </Text>
+            {/* Every empty state offers a real action so nothing dead-ends. */}
+            <View style={{ marginTop: 18 }}>
+              {feed === 'public' ? (
+                <EmptyAction icon={UserPlus} label="Find friends" onPress={onOpenAddFriends} />
+              ) : friendCount === 0 ? (
+                <EmptyAction icon={UserPlus} label="Add your first friend" primary onPress={onOpenAddFriends} />
+              ) : (
+                <EmptyAction icon={MessageCircle} label="Start a chat" onPress={onOpenDMs} />
+              )}
+            </View>
           </View>
         ) : (
           posts.map((p) => (
@@ -216,4 +221,37 @@ function Seg({ label, active, onPress }) {
   )
 }
 
-const iconBtn = { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineMid }
+// A header entry point: the icon chip + a small caption below (mirrors the
+// bottom tab bar's icon+label), so Messages and Add read as buttons. The pending
+// -request badge pins to the icon's corner.
+function HeaderAction({ icon: Icon, label, onPress, badge = 0 }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={10} style={{ alignItems: 'center' }}>
+      <View style={iconChip}>
+        <Icon size={20} color={C.ink} strokeWidth={2.2} />
+        {badge > 0 && (
+          <View style={{ position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: C.amber, borderWidth: 1.5, borderColor: C.bg }}>
+            <Text style={{ fontFamily: F.bold, fontSize: 10.5, color: C.amberInk }}>{badge}</Text>
+          </View>
+        )}
+      </View>
+      <Text style={headerCaption}>{label}</Text>
+    </Pressable>
+  )
+}
+
+// Empty-state action button — primary (amber fill) or ghost (outline).
+function EmptyAction({ icon: Icon, label, primary, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: primary ? C.amber : 'transparent', borderWidth: primary ? 0 : 1, borderColor: C.lineStrong }}
+    >
+      <Icon size={15} color={primary ? C.amberInk : C.dim} strokeWidth={2.4} />
+      <Text style={{ fontFamily: primary ? F.bold : F.semibold, fontSize: 13, color: primary ? C.amberInk : C.dim }}>{label}</Text>
+    </Pressable>
+  )
+}
+
+const iconChip = { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineMid }
+const headerCaption = { marginTop: 5, fontFamily: F.medium, fontSize: 9.5, color: C.dim, letterSpacing: 0.6, textTransform: 'uppercase' }

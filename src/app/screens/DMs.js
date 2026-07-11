@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
-import { ArrowLeft, Check, PenSquare, Send, Users, X } from 'lucide-react-native'
+import { ArrowLeft, Check, PenSquare, Send, UserPlus, Users, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
 import { getConversations, getMessages, sendMessage, openDm, createGroup } from '../../services/dmService'
 import { getFriendships, getIdentities } from '../../services/socialService'
 
 // Messages — conversation list, 1:1 and group threads, and starting new chats.
-export default function DMs({ profile, onClose }) {
+export default function DMs({ profile, onClose, onOpenAddFriends }) {
   const myId = profile.userId
   const [view, setView] = useState('list') // list | thread | new
   const [convos, setConvos] = useState([])
@@ -84,7 +84,10 @@ export default function DMs({ profile, onClose }) {
             {view === 'thread' ? titleOf(active).toUpperCase() : view === 'new' ? 'NEW MESSAGE' : 'MESSAGES'}
           </Text>
           {view === 'list' && (
-            <Pressable onPress={openNew} hitSlop={10}><PenSquare size={20} color={C.violet} strokeWidth={2.2} /></Pressable>
+            <Pressable onPress={openNew} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }}>
+              <PenSquare size={15} color={C.violet} strokeWidth={2.2} />
+              <Text style={{ fontFamily: F.bold, fontSize: 12.5, color: C.violet }}>New</Text>
+            </Pressable>
           )}
         </View>
 
@@ -93,7 +96,11 @@ export default function DMs({ profile, onClose }) {
             {loading ? <ActivityIndicator size="small" color={C.faint} style={{ marginTop: 24 }} /> : convos.length === 0 ? (
               <View style={{ alignItems: 'center', paddingTop: 60, paddingHorizontal: 40 }}>
                 <Users size={28} color={C.faint2} strokeWidth={1.8} />
-                <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.faint, marginTop: 12, textAlign: 'center', lineHeight: 20 }}>No messages yet. Tap the pencil to start a chat with a friend or a group.</Text>
+                <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.faint, marginTop: 12, textAlign: 'center', lineHeight: 20 }}>No messages yet. Start a chat with a friend or a group.</Text>
+                <Pressable onPress={openNew} style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 18, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: C.amber }}>
+                  <PenSquare size={14} color={C.amberInk} strokeWidth={2.4} />
+                  <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.amberInk }}>Start a chat</Text>
+                </Pressable>
               </View>
             ) : convos.map((c) => (
               <Pressable key={c.id} onPress={() => openThread(c)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 14 }}>
@@ -138,7 +145,13 @@ export default function DMs({ profile, onClose }) {
             )}
             <Text style={{ fontFamily: F.display, fontSize: 11.5, color: C.faint, letterSpacing: 3, marginBottom: 12 }}>CHOOSE FRIENDS</Text>
             {friends.length === 0 ? (
-              <Text style={{ fontFamily: F.body, fontSize: 13, color: C.faint, textAlign: 'center', paddingVertical: 16 }}>Add friends first to start a chat.</Text>
+              <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+                <Text style={{ fontFamily: F.body, fontSize: 13, color: C.faint, textAlign: 'center' }}>Add friends first to start a chat.</Text>
+                <Pressable onPress={() => onOpenAddFriends?.()} style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 16, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: C.amber }}>
+                  <UserPlus size={14} color={C.amberInk} strokeWidth={2.4} />
+                  <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.amberInk }}>Add friends</Text>
+                </Pressable>
+              </View>
             ) : friends.map((f) => {
               const on = picked.includes(f.id)
               return (

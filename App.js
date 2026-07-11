@@ -723,7 +723,7 @@ export default function App() {
             />
           )}
           {editingGoal && <GoalEditor goal={editingGoal} onSave={handleGoalSave} onCancel={() => setEditingGoal(null)} dream={p.dreamDescription} />}
-          {showDMs && <DMs profile={p} onClose={() => setShowDMs(false)} />}
+          {showDMs && <DMs profile={p} onClose={() => setShowDMs(false)} onOpenAddFriends={() => { setShowDMs(false); setShowAddFriends(true) }} />}
           {showAddFriends && <AddFriends profile={p} onClose={() => setShowAddFriends(false)} onChanged={() => setSocialReload((k) => k + 1)} />}
         </View>
       )}
