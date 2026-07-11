@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
-import { Flame, Heart, MessageCircle, Send, TrendingUp, UserPlus, Users } from 'lucide-react-native'
+import { Ban, Flag, Flame, Heart, MessageCircle, MoreHorizontal, Send, TrendingUp, UserPlus, Users, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
 import { currentStreak } from '../store'
 import { getFriendships, saveProfileNow } from '../../services/socialService'
 import { getFriendsFeed, getPublicFeed, createPost, toggleLike } from '../../services/feedService'
+import { reportPost, blockUser } from '../../services/moderationService'
 
 function timeAgo(iso) {
   const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
@@ -30,6 +31,9 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   const [incomingCount, setIncomingCount] = useState(0)
   // How many accepted friends I have — chooses which empty-state CTA to show.
   const [friendCount, setFriendCount] = useState(0)
+  // The post whose report/block sheet is open, and a transient confirmation note.
+  const [moderating, setModerating] = useState(null)
+  const [modNote, setModNote] = useState(null)
 
   // My streak + overall progress toward the dream (avg of goal progress) — shown
   // under my own posts. Friends' posts show their streak from the public projection.
@@ -91,6 +95,28 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
     if (error) {
       setPosts((arr) => arr.map((x) => (x.id === p.id ? { ...x, likedByMe: p.likedByMe, likeCount: p.likeCount } : x)))
     }
+  }
+
+  // Report the flagged post: record it, then hide just that post locally.
+  const doReport = async (p) => {
+    setModerating(null)
+    setPosts((arr) => arr.filter((x) => x.id !== p.id))
+    await reportPost(p.id)
+    setModNote('Thanks — reported. Our team will review it.')
+    setTimeout(() => setModNote(null), 3200)
+  }
+
+  // Block the author: hide ALL their posts locally now (the feed RLS keeps them
+  // hidden on every future load, both directions).
+  const doBlock = async (p) => {
+    const authorId = p.userId
+    const name = p.author?.username ? `@${p.author.username}` : (p.author?.full_name || 'this user')
+    setModerating(null)
+    setPosts((arr) => arr.filter((x) => x.userId !== authorId))
+    setFriendCount((c) => Math.max(0, c))
+    await blockUser(authorId)
+    setModNote(`Blocked ${name}. You won't see their posts anymore.`)
+    setTimeout(() => setModNote(null), 3200)
   }
 
   return (
@@ -179,6 +205,12 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
                     {p.author?.username ? `@${p.author.username} · ` : ''}{timeAgo(p.createdAt)}
                   </Text>
                 </View>
+                {/* Report / block — only on other people's posts */}
+                {p.userId !== myId && (
+                  <Pressable onPress={() => setModerating(p)} hitSlop={10} style={{ padding: 4 }}>
+                    <MoreHorizontal size={18} color={C.faint} strokeWidth={2.2} />
+                  </Pressable>
+                )}
               </View>
               <Text style={{ fontFamily: F.body, fontSize: 15, color: C.ink2, lineHeight: 22, marginTop: 10 }}>{p.content}</Text>
 
@@ -208,6 +240,42 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
           ))
         )}
       </ScrollView>
+
+      {/* Report / block action sheet */}
+      {moderating && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(7,7,15,0.82)', justifyContent: 'flex-end', zIndex: 260 }}>
+          <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setModerating(null)} />
+          <View style={{ backgroundColor: C.card, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderColor: C.lineMid, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 34 }}>
+            <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.dim, marginBottom: 14 }}>
+              {moderating.author?.username ? `@${moderating.author.username}` : (moderating.author?.full_name || 'This member')}’s post
+            </Text>
+            <Pressable onPress={() => doReport(moderating)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
+              <Flag size={18} color={C.ink} strokeWidth={2.2} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.ink }}>Report post</Text>
+                <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Flag it for our team to review.</Text>
+              </View>
+            </Pressable>
+            <Pressable onPress={() => doBlock(moderating)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }}>
+              <Ban size={18} color={C.red} strokeWidth={2.2} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.red }}>Block this user</Text>
+                <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Hide all their posts. They won’t see yours either.</Text>
+              </View>
+            </Pressable>
+            <Pressable onPress={() => setModerating(null)} style={{ marginTop: 12, borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: C.lineStrong }}>
+              <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.dim }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {/* Transient confirmation after report/block */}
+      {modNote && (
+        <View style={{ position: 'absolute', bottom: 96, left: 16, right: 16, backgroundColor: C.card, borderWidth: 1, borderColor: C.lineStrong, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 13, zIndex: 270 }}>
+          <Text style={{ fontFamily: F.medium, fontSize: 13, color: C.ink2, lineHeight: 19 }}>{modNote}</Text>
+        </View>
+      )}
 
     </View>
   )

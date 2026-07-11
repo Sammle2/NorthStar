@@ -436,6 +436,9 @@ function IntakeForm({ onSubmit, askAccount }) {
               </Pressable>
             </View>
           </Field>
+          <Text style={{ fontFamily: F.body, fontSize: 11, color: C.faint, marginTop: 14, lineHeight: 16 }}>
+            By continuing, you agree to our Terms &amp; Conditions and Privacy Policy (in Settings), and confirm you’re at least 13.
+          </Text>
         </>
       )}
       {error && (

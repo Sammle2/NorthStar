@@ -209,6 +209,10 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
             </View>
           </View>
 
+          <Text style={{ fontFamily: F.body, fontSize: 11, color: C.faint, marginBottom: 16, lineHeight: 16 }}>
+            By creating an account, you agree to our Terms &amp; Conditions and Privacy Policy (in Settings), and confirm you’re at least 13.
+          </Text>
+
           {/* Sign Up Button */}
           <Pressable onPress={handleSignUp} disabled={loading} style={{ marginBottom: 32 }}>
             <LinearGradient colors={[C.amber, C.amberDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 14, paddingVertical: 15, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
