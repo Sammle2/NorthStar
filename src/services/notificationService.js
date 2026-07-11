@@ -1,14 +1,43 @@
-// Notification service — check-ins + motivations.
+// Notification service — daily check-ins + one-off motivations.
 //
-// Per the current build target this is the WEB + IN-APP implementation:
-//  - On web it uses the browser Notification API (with permission).
-//  - Everywhere it also emits to in-app listeners so the app can show its own
-//    banner (works in the preview, and on native until expo-notifications is wired).
+// Platform-aware:
+//  - NATIVE (iOS/Android): expo-notifications. The daily 1 PM check-in is a real
+//    OS-scheduled LOCAL notification that fires even when the app is closed — no
+//    server or APNs certificate needed. One-off motivations present immediately.
+//  - WEB: the browser Notification API (with permission) + an in-app banner.
+//  - Everywhere: also emits to in-app listeners so the app can show its own
+//    banner while open.
 //
-// Scheduling here fires while the app/tab is open (a setTimeout to the next 1pm,
-// re-armed each day). True background/OS-scheduled delivery needs native
-// expo-notifications (a real device / dev build) and is intentionally deferred.
+// Remote (server-sent) push — e.g. "a friend messaged you" — needs an Expo push
+// token registered to a backend that sends via the Expo Push API (and, for iOS,
+// an Apple push key from a paid Apple Developer account). registerForPushToken()
+// below fetches the token so that layer is a small follow-up, not a rewrite.
 import { Platform } from 'react-native'
+
+// Lazy native-only requires so the web bundle never touches native modules.
+const Notifications = Platform.OS !== 'web' ? require('expo-notifications') : null
+const Device = Platform.OS !== 'web' ? require('expo-device') : null
+
+const CHECKIN_ID = 'daily-checkin' // stable identifier so we replace, not stack
+const ANDROID_CHANNEL = 'reminders'
+
+// Foreground behaviour on native: show the banner + play sound even while open.
+if (Notifications) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
+  })
+}
+
+async function ensureAndroidChannel() {
+  if (Platform.OS !== 'android' || !Notifications) return
+  try {
+    await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL, {
+      name: 'Reminders',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      lightColor: '#f59e0b',
+    })
+  } catch (e) { /* noop */ }
+}
 
 // ── Web Notification API ──────────────────────────────────────────────────────
 export function webNotificationsSupported() {
@@ -20,18 +49,26 @@ export function permissionStatus() {
   try { return Notification.permission } catch { return 'unsupported' }
 }
 
+// Ask for OS notification permission (native) or browser permission (web).
 export async function requestNotificationPermission() {
+  if (Notifications) {
+    try {
+      await ensureAndroidChannel()
+      const current = await Notifications.getPermissionsAsync()
+      if (current.granted) return 'granted'
+      const req = await Notifications.requestPermissionsAsync()
+      return req.granted ? 'granted' : 'denied'
+    } catch { return 'denied' }
+  }
   if (!webNotificationsSupported()) return 'unsupported'
   try {
     if (Notification.permission === 'granted') return 'granted'
     if (Notification.permission === 'denied') return 'denied'
     return await Notification.requestPermission()
-  } catch {
-    return 'denied'
-  }
+  } catch { return 'denied' }
 }
 
-// ── In-app pub/sub (for the top banner + native fallback) ─────────────────────
+// ── In-app pub/sub (for the top banner while the app is open) ─────────────────
 const listeners = new Set()
 export function onNotification(fn) {
   listeners.add(fn)
@@ -41,19 +78,22 @@ function emit(payload) {
   listeners.forEach((fn) => { try { fn(payload) } catch (e) { /* noop */ } })
 }
 
-// Fire a notification now: OS notification on web (if granted) + in-app banner.
+// Fire a notification NOW: OS notification (web if granted / native immediate) +
+// in-app banner.
 export function notify(title, body, kind = 'checkin') {
   if (webNotificationsSupported() && Notification.permission === 'granted') {
     try { new Notification(title, { body }) } catch (e) { /* noop */ }
+  } else if (Notifications) {
+    try { Notifications.scheduleNotificationAsync({ content: { title, body }, trigger: null }) } catch (e) { /* noop */ }
   }
   emit({ title, body, kind, at: new Date().toISOString() })
   return { title, body, kind }
 }
 
-// ── Daily 1pm check-in scheduler ──────────────────────────────────────────────
-let checkInTimer = null
+// ── Daily check-in scheduler ──────────────────────────────────────────────────
+let webCheckInTimer = null
 
-// ms until the next occurrence of hh:mm in LOCAL time.
+// ms until the next occurrence of hh:mm in LOCAL time (web scheduler).
 function msUntilNext(hh, mm = 0) {
   const now = new Date()
   const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0)
@@ -61,24 +101,70 @@ function msUntilNext(hh, mm = 0) {
   return next.getTime() - now.getTime()
 }
 
-// Schedule the daily "quick check" at 1:00 PM. getMessage() returns { title, body }
-// so the text can stay current with the user's tone/streak at fire time.
+// Schedule the daily "quick check" at 1:00 PM local. getMessage() returns
+// { title, body }. On WEB the timer fires while the tab is open and re-arms each
+// day (getMessage runs at fire time, so it reflects the live streak/tone). On
+// NATIVE it's a real repeating OS notification — the message is resolved ONCE at
+// schedule time (JS isn't running when the app is closed) and refreshed whenever
+// this is re-armed (app open, tone/streak change).
 export function scheduleDailyCheckIn(getMessage, hh = 13, mm = 0) {
+  const resolve = () => { try { return getMessage?.() || {} } catch { return {} } }
+
+  if (Notifications) {
+    ;(async () => {
+      try {
+        await ensureAndroidChannel()
+        await cancelDailyCheckIn()
+        const msg = resolve()
+        await Notifications.scheduleNotificationAsync({
+          identifier: CHECKIN_ID,
+          content: {
+            title: msg.title || 'Nova',
+            body: msg.body || 'Quick check-in — how’s today going?',
+          },
+          // SDK 56 requires the explicit typed trigger; DAILY repeats at hh:mm local.
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DAILY,
+            hour: hh,
+            minute: mm,
+            ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL } : {}),
+          },
+        })
+      } catch (e) { /* noop */ }
+    })()
+    return
+  }
+
+  // Web: setTimeout to the next 1pm, re-arm each day.
   cancelDailyCheckIn()
   const arm = () => {
-    checkInTimer = setTimeout(() => {
-      try {
-        const msg = getMessage?.() || {}
-        notify(msg.title || 'Nova', msg.body || 'Quick check-in — how’s today going?', 'checkin')
-      } catch (e) { /* noop */ }
-      arm() // re-arm for the next day
+    webCheckInTimer = setTimeout(() => {
+      const msg = resolve()
+      notify(msg.title || 'Nova', msg.body || 'Quick check-in — how’s today going?', 'checkin')
+      arm()
     }, msUntilNext(hh, mm))
   }
   arm()
 }
 
-export function cancelDailyCheckIn() {
-  if (checkInTimer) { clearTimeout(checkInTimer); checkInTimer = null }
+export async function cancelDailyCheckIn() {
+  if (Notifications) {
+    try { await Notifications.cancelScheduledNotificationAsync(CHECKIN_ID) } catch (e) { /* noop */ }
+    return
+  }
+  if (webCheckInTimer) { clearTimeout(webCheckInTimer); webCheckInTimer = null }
+}
+
+// ── Remote push token (groundwork; used once a sending backend + APNs key exist) ─
+// Returns the Expo push token string, or null if unavailable/denied/web/simulator.
+export async function registerForPushToken() {
+  if (!Notifications || !Device?.isDevice) return null
+  try {
+    const perm = await requestNotificationPermission()
+    if (perm !== 'granted') return null
+    const { data } = await Notifications.getExpoPushTokenAsync()
+    return data || null
+  } catch { return null }
 }
 
 // Convenience for a one-off motivation push (used by NOVA / progress events).
@@ -99,5 +185,6 @@ export default {
   notify,
   scheduleDailyCheckIn,
   cancelDailyCheckIn,
+  registerForPushToken,
   sendMotivation,
 }

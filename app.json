@@ -34,6 +34,13 @@
           "imageWidth": 200,
           "backgroundColor": "#07070f"
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#f59e0b"
+        }
       ]
     ]
   }
