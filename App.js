@@ -47,7 +47,7 @@ import StarField from './src/app/components/StarField'
 import { LegalPage } from './src/app/components/LegalDocs'
 import { establishSessionFromUrl, onAuthStateChange, resendConfirmation, signOut as supabaseSignOut, signUpWithEmail } from './src/services/supabaseAuth'
 import { isUsernameAvailable } from './src/services/socialService'
-import { COACH_MESSAGES, normalizeAiGoal } from './src/app/aiEngine'
+import { COACH_MESSAGES, isGenericGoalTitle, normalizeAiGoal } from './src/app/aiEngine'
 import { generateRoadmap } from './src/services/aiService'
 import { requestNotificationPermission, scheduleDailyCheckIn, cancelDailyCheckIn, onNotification } from './src/services/notificationService'
 import { Bell } from 'lucide-react-native'
@@ -286,16 +286,22 @@ export default function App() {
     ;(async () => {
       for (const g of candidates) {
         try {
+          const dream = appStateRef.current?.profile?.dreamDescription || ''
           const ai = await generateRoadmap({
             name: appStateRef.current?.profile?.name,
             rawGoal: g.title,
+            extra: dream, // ground the roadmap (and any title fix) in their dream
             tone: appStateRef.current?.profile?.coachTone,
           })
           updateProfile((prof) => {
             const target = (prof.goals || []).find((x) => x.id === g.id)
             if (!target || !untouched(target)) return prof // deleted or started meanwhile
             const upgraded = normalizeAiGoal(ai, target.title, '', target.id)
-            return { ...prof, goals: prof.goals.map((x) => (x.id === g.id ? { ...upgraded, title: target.title } : x)) }
+            // Keep the user's/AI-specific title — but if the goal still carries a
+            // GENERIC template title (legacy accounts), adopt the AI's specific
+            // one so no vague goal survives.
+            const title = isGenericGoalTitle(target.title) ? upgraded.title : target.title
+            return { ...prof, goals: prof.goals.map((x) => (x.id === g.id ? { ...upgraded, title } : x)) }
           })
         } catch (e) {
           console.warn('[Goals] AI upgrade failed for', g.title, '- keeping template:', e?.message)

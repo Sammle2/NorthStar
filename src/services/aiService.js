@@ -351,6 +351,40 @@ Return ONLY a JSON array of ${count} strings, e.g. ["Outline the intro", "Draft 
   return steps
 }
 
+// Specific, actionable SUPPORTING goals for the other life areas a user cares
+// about (from the onboarding survey), grounded in their dream + primary goal —
+// so the roadmap is never padded with vague template goals. Returns
+// [{ title, category }]; [] on any failure (caller then shows NO supporting
+// goal rather than a generic one).
+export async function generateSupportingGoals({ name = '', primaryGoal = '', extra = '', domains = [], tone = 'default' }) {
+  if (!Array.isArray(domains) || !domains.length) return []
+  const firstName = (name || '').split(' ')[0] || 'they'
+  const domainList = domains.map((d) => `- ${d.key}: ${d.label}`).join('\n')
+  const prompt = `You are ${firstName}'s life coach. Their main goal is: "${primaryGoal}".${extra ? ` They also said: "${extra}".` : ''}
+
+They also care about these other life areas and want ONE concrete goal in each:
+${domainList}
+
+For each area, write ONE specific, actionable goal for ${firstName} — something real they could start this week and measure, as a short goal title (Title Case, no leading "I want to"). It MUST be specific: prefer a number, a named habit, a shipped thing, or a concrete milestone, and tie it to their dream where it fits. NEVER vague — do NOT write things like "Build a career you're proud of", "Get healthier", "Reach financial freedom", or "Find balance".
+
+Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
+
+Return ONLY a JSON array, one object per area, no prose, no code fences:
+[{ "category": "<the area's key>", "title": "<specific actionable goal title>" }]`
+
+  try {
+    const res = await callClaude(prompt, 600)
+    const arr = extractJson(res)
+    if (!Array.isArray(arr)) return []
+    return arr
+      .filter((g) => g && typeof g.title === 'string' && g.title.trim())
+      .map((g) => ({ title: g.title.trim(), category: typeof g.category === 'string' ? g.category.trim() : '' }))
+  } catch (e) {
+    console.warn('[Onboarding] supporting-goals generation failed:', e?.message)
+    return []
+  }
+}
+
 // Judge whether the user's stated "most important goal" is real and workable
 // enough to build a roadmap around. Returns { ok, message } — when not ok,
 // `message` is Nova's warm re-ask for something more specific/attainable.
@@ -532,6 +566,7 @@ export default {
   generateDailyActionsForMilestone,
   generateDreamLifeStory,
   generateRoadmap,
+  generateSupportingGoals,
   generateSprintPlan,
   judgeGoal,
   coachRespond,

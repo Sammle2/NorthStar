@@ -20,13 +20,14 @@ import {
   INTEREST_LEVELS,
   MAX_EVERYTHING,
   actionableTitle,
+  buildSupportingGoal,
   capName,
   generateDreamStory,
   generateGoals,
   normalizeAiGoal,
   validateGoal,
 } from '../aiEngine'
-import { generateDreamLifeStory, generateRoadmap, judgeGoal } from '../../services/aiService'
+import { generateDreamLifeStory, generateRoadmap, generateSupportingGoals, judgeGoal } from '../../services/aiService'
 
 const TONES = [
   { id: 'tough', label: 'Tough Love', desc: 'No BS, high expectations', emoji: '💪' },
@@ -174,17 +175,42 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount }) {
       }
       if (!dreamStory) dreamStory = generateDreamStory({ name, age, answers, goalTitle, extra })
 
-      // Local roadmap is the baseline AND the fallback. When Claude is reachable,
-      // upgrade the PRIMARY goal to a roadmap generated from the user's own words —
-      // specific, actionable milestones + stepping stones. Supporting goals (from
-      // the survey) stay local; drop any that duplicate the AI goal's category.
+      // Build the roadmap. The PRIMARY goal comes from the user's own words; the
+      // SUPPORTING goals are SPECIFIC, AI-written goals for the other life areas
+      // they rated highly — never generic templates. Both AI calls run in
+      // parallel so this adds no latency. If the AI is unreachable we fall back
+      // to the user's primary goal ALONE (a local scaffold the background
+      // upgrader specializes later) rather than ever showing a vague goal.
       let goals = generateGoals(goal, answers, extra)
+      const localPrimaryCat = goals[0].category
+      const domains = Object.entries(answers || {})
+        .filter(([k, v]) => v >= 2 && k !== localPrimaryCat)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 2)
+        .map(([k]) => ({ key: k, label: (DREAM_QUESTIONS.find((q) => q.key === k) || {}).label || k }))
       try {
-        const ai = await generateRoadmap({ name, rawGoal: goal, extra, tone })
+        const [ai, specs] = await Promise.all([
+          generateRoadmap({ name, rawGoal: goal, extra, tone }),
+          generateSupportingGoals({ name, primaryGoal: goal, extra, domains, tone }),
+        ])
         const aiPrimary = normalizeAiGoal(ai, goal, extra, 'goal-primary')
-        goals = [aiPrimary, ...goals.slice(1).filter((g) => g.category !== aiPrimary.category)]
+        // Keep only the life areas they actually rated highly, one goal per area,
+        // and never one that duplicates the primary goal's area. (The model can
+        // volunteer extra off-target goals — those are dropped.)
+        const wanted = new Set(domains.map((d) => d.key))
+        const seen = new Set([aiPrimary.category])
+        const supporting = []
+        for (const s of specs || []) {
+          if (!s.title) continue
+          const built = buildSupportingGoal(s.title, s.category)
+          if (!wanted.has(built.category) || seen.has(built.category)) continue
+          seen.add(built.category)
+          supporting.push(built)
+        }
+        goals = [aiPrimary, ...supporting]
       } catch (e) {
-        console.warn('[Onboarding] AI roadmap failed, using local roadmap:', e?.message)
+        console.warn('[Onboarding] AI roadmap failed, primary goal only:', e?.message)
+        goals = goals.slice(0, 1) // never keep the generic survey supporting goals
       }
 
       // NOTE: identity fields (userId/email/username) are NOT set here — App.js

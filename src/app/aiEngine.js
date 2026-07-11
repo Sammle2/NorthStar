@@ -438,6 +438,33 @@ const DOMAIN_TEMPLATES = {
   },
 }
 
+// The generic domain-template goal titles. A supporting goal carrying one of
+// these still needs a specific, user-grounded title — it must never be shown to
+// the user as-is (generic goals deter people from the app).
+export const GENERIC_GOAL_TITLES = new Set(Object.values(DOMAIN_TEMPLATES).map((t) => t.title))
+export function isGenericGoalTitle(title) {
+  return GENERIC_GOAL_TITLES.has(String(title || '').trim())
+}
+
+// Build a supporting goal from an AI-generated SPECIFIC { title, category }. It's
+// a source:'template' scaffold with placeholder milestones so the background
+// upgrader fills in a full specific roadmap — but the TITLE is already specific,
+// so the roadmap never shows a generic goal, even for the moment before upgrade.
+export function buildSupportingGoal(title, category, id = `goal-${Math.random().toString(36).slice(2, 8)}`) {
+  const clean = String(title || '').trim()
+  const cat = VALID_CATEGORIES.has(category) ? category : primaryThemeOf(clean) || 'mindset'
+  const tmpl = DOMAIN_TEMPLATES[cat]
+  return {
+    id,
+    title: clean,
+    category: cat,
+    progress: 0,
+    source: 'template',
+    milestones: buildMilestones(cat, clean, false),
+    dailyActions: mkActions(tmpl ? tmpl.dailyActions : ['Take one real step toward your goal', 'Remove one obstacle in your way', 'Reflect on what moved the needle']),
+  }
+}
+
 // Three timed milestones (+ stepping stones) for a supporting (survey) goal.
 function domainMilestones(domain) {
   return buildMilestones(domain, DOMAIN_TEMPLATES[domain].title, false)
