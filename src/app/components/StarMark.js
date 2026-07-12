@@ -92,9 +92,34 @@ export function FacetedStar({ size = 24, shades = PURPLE_SHADES, glow = false })
 }
 
 // The gold star that stands in for the "A" of the wordmark.
-export function GoldStar({ size = 24 }) {
+export function GoldStar({ size = 24, glow = false, style }) {
+  if (!glow) {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 100 100" style={style}>
+        {facets(GOLD_SHADES).map((f, i) => (
+          <Polygon key={i} points={f.points} fill={f.fill} />
+        ))}
+      </Svg>
+    )
+  }
+  // Same radiant treatment as the Nova star, in gold.
+  const SILHOUETTE = RIM.map((v) => `${v[0]},${v[1]}`).join(' ')
   return (
-    <Svg width={size} height={size} viewBox="0 0 100 100">
+    <Svg width={size} height={size} viewBox="-30 -28 160 160" style={style}>
+      <Defs>
+        <Filter id="goldBloomWide" x="-80%" y="-80%" width="260%" height="260%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="12" />
+        </Filter>
+        <Filter id="goldBloomMid" x="-60%" y="-60%" width="220%" height="220%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="6" />
+        </Filter>
+        <Filter id="goldBloomTight" x="-40%" y="-40%" width="180%" height="180%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="2.5" />
+        </Filter>
+      </Defs>
+      <Polygon points={SILHOUETTE} fill="#f59e0b" opacity={0.9} filter="url(#goldBloomWide)" />
+      <Polygon points={SILHOUETTE} fill="#fbbf24" opacity={0.7} filter="url(#goldBloomMid)" />
+      <Polygon points={SILHOUETTE} fill="#fef3c7" opacity={0.9} filter="url(#goldBloomTight)" />
       {facets(GOLD_SHADES).map((f, i) => (
         <Polygon key={i} points={f.points} fill={f.fill} />
       ))}
