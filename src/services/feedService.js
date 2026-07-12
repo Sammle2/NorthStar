@@ -5,7 +5,7 @@
 import { getSupabaseClient } from './supabaseAuth'
 
 const AUTHOR = 'author:profiles!inner(id,username,full_name,avatar_url,visibility,streak,dream_progress)'
-const SELECT = `id,user_id,content,created_at,${AUTHOR},likes:post_likes(user_id)`
+const SELECT = `id,user_id,content,media_url,media_type,audience,created_at,${AUTHOR},likes:post_likes(user_id)`
 
 // True when the error is "column posts.audience does not exist" — the audience
 // migration hasn't been applied yet, so we fall back to the legacy behavior.
@@ -16,6 +16,9 @@ function shape(rows, myId) {
     id: p.id,
     userId: p.user_id,
     content: p.content,
+    mediaUrl: p.media_url || null,
+    mediaType: p.media_type || null,
+    audience: p.audience || 'public',
     createdAt: p.created_at,
     author: p.author,
     likeCount: (p.likes || []).length,
@@ -23,11 +26,13 @@ function shape(rows, myId) {
   }))
 }
 
-export async function createPost(content, audience = 'public') {
+export async function createPost(content, audience = 'public', media = null) {
   try {
     const supabase = getSupabaseClient()
     const { data: { user } } = await supabase.auth.getUser()
-    let { error } = await supabase.from('posts').insert({ user_id: user.id, content: content.trim(), audience })
+    const row = { user_id: user.id, content: content.trim(), audience }
+    if (media && media.url) { row.media_url = media.url; row.media_type = media.type || 'image' }
+    let { error } = await supabase.from('posts').insert(row)
     if (error && audienceColumnMissing(error)) {
       // Pre-migration fallback: post without the audience column (legacy behavior).
       ;({ error } = await supabase.from('posts').insert({ user_id: user.id, content: content.trim() }))
@@ -37,6 +42,49 @@ export async function createPost(content, audience = 'public') {
   } catch (e) {
     console.error('[Feed] createPost failed:', e?.message)
     return { error: e?.message || 'Could not post' }
+  }
+}
+
+// Edit a post's text and/or media. Pass media: null to remove media, or
+// { url, type } to set it; omit media to leave it unchanged.
+export async function updatePost(postId, { content, media } = {}) {
+  try {
+    const supabase = getSupabaseClient()
+    const patch = {}
+    if (content != null) patch.content = content.trim()
+    if (media !== undefined) {
+      patch.media_url = media ? media.url : null
+      patch.media_type = media ? (media.type || 'image') : null
+    }
+    const { error } = await supabase.from('posts').update(patch).eq('id', postId)
+    if (error) throw error
+    return { error: null }
+  } catch (e) {
+    console.warn('[Feed] updatePost failed:', e?.message)
+    return { error: e?.message || 'Could not save changes' }
+  }
+}
+
+// Upload a picked photo/video to the public post-media bucket (per-user folder,
+// like avatars); returns { url, type } for createPost/updatePost.
+export async function uploadPostMedia(userId, uri) {
+  try {
+    const supabase = getSupabaseClient()
+    const res = await fetch(uri)
+    const blob = await res.blob()
+    const isVideo = (blob.type || '').startsWith('video')
+    const ext = (blob.type && blob.type.split('/')[1]) || (isVideo ? 'mp4' : 'jpg')
+    const path = `${userId}/post_${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('post-media').upload(path, blob, {
+      contentType: blob.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
+      upsert: true,
+    })
+    if (error) throw error
+    const { data } = supabase.storage.from('post-media').getPublicUrl(path)
+    return { url: data.publicUrl, type: isVideo ? 'video' : 'image', error: null }
+  } catch (e) {
+    console.error('[Feed] media upload failed:', e?.message)
+    return { url: null, type: null, error: e?.message || 'Upload failed' }
   }
 }
 
@@ -122,4 +170,4 @@ export async function deletePost(postId) {
   }
 }
 
-export default { createPost, getFriendsFeed, getPublicFeed, toggleLike, deletePost }
+export default { createPost, getFriendsFeed, getPublicFeed, toggleLike, deletePost, updatePost, uploadPostMedia }

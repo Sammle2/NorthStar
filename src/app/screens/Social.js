@@ -1,14 +1,34 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
-import { Ban, Flag, Flame, Heart, MessageCircle, MoreHorizontal, Send, TrendingUp, UserPlus, Users, X } from 'lucide-react-native'
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import * as ImagePicker from 'expo-image-picker'
+import { Ban, Flag, Flame, Globe, Heart, ImagePlus, Lock, MessageCircle, MoreHorizontal, Pencil, Send, Trash2, TrendingUp, UserPlus, Users, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
 import ConnectableProfileModal from '../components/ConnectableProfileModal'
 import { CirclesPanel, CircleDetail } from './Circles'
 import { currentStreak } from '../store'
 import { getFriendships, getProfile, saveProfileNow } from '../../services/socialService'
-import { getFriendsFeed, getPublicFeed, createPost, toggleLike } from '../../services/feedService'
+import { getFriendsFeed, getPublicFeed, createPost, toggleLike, updatePost, deletePost, uploadPostMedia } from '../../services/feedService'
 import { reportPost, blockUser } from '../../services/moderationService'
+
+// Renders a post's photo or video. Video plays via a native <video> on web (the
+// deployed platform); native builds show a neutral placeholder (not shipped).
+function PostMedia({ uri, type, height = 260, radius = 14 }) {
+  if (type === 'video') {
+    if (Platform.OS === 'web') {
+      return React.createElement('video', {
+        src: uri, controls: true, playsInline: true,
+        style: { width: '100%', height, borderRadius: radius, background: '#000', objectFit: 'cover', display: 'block' },
+      })
+    }
+    return (
+      <View style={{ height, borderRadius: radius, backgroundColor: C.lineSoft, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontFamily: F.medium, fontSize: 12, color: C.faint }}>Video</Text>
+      </View>
+    )
+  }
+  return <Image source={{ uri }} style={{ width: '100%', height, borderRadius: radius, backgroundColor: C.lineSoft }} resizeMode="cover" />
+}
 
 function timeAgo(iso) {
   const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
@@ -28,6 +48,14 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
   const [posting, setPosting] = useState(false)
+  // Compose: attached media {uri,type} and the audience chosen for the new post.
+  const [media, setMedia] = useState(null)
+  const [composeAudience, setComposeAudience] = useState(feed === 'public' ? 'public' : 'friends')
+  // Inline edit of my own post + a post pending delete confirmation.
+  const [editingId, setEditingId] = useState(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(null)
   // Pending friend requests addressed to me — drives the badge + banner so an
   // incoming request is impossible to miss.
   const [incomingCount, setIncomingCount] = useState(0)
@@ -75,25 +103,70 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   }
   useEffect(() => { load(feed) }, [feed, reloadKey])
 
+  // Switching the Friends/Public segment nudges the compose audience to match,
+  // but the composer's own toggle can override it before sending.
+  useEffect(() => { if (feed === 'friends' || feed === 'public') setComposeAudience(feed) }, [feed])
+
+  // Attach a photo or video (opens the OS/library picker; a file dialog on web).
+  const pickMedia = async () => {
+    try {
+      await ImagePicker.requestMediaLibraryPermissionsAsync()
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 })
+      if (res.canceled || !res.assets?.length) return
+      const a = res.assets[0]
+      setMedia({ uri: a.uri, type: a.type === 'video' ? 'video' : 'image' })
+    } catch (e) {
+      console.warn('[Social] pickMedia failed:', e?.message)
+    }
+  }
+
   const post = async () => {
     const text = draft.trim()
-    if (!text) return
+    if (!text && !media) return
     setPosting(true)
-    setDraft('')
+    const localMedia = media
+    setDraft(''); setMedia(null)
     // Guarantee my public profile row exists first — the feed's inner join
     // requires it, so without it a fresh account's post is invisible to its own
-    // author ("won't post"). The post's audience is whichever segment is selected
-    // when it's sent: Public → everyone on the app, My Friends → friends only.
+    // author ("won't post").
     await saveProfileNow(profile)
-    const { error } = await createPost(text, feed === 'public' ? 'public' : 'friends')
+    let uploaded = null
+    if (localMedia) {
+      const up = await uploadPostMedia(myId, localMedia.uri)
+      if (up.error || !up.url) {
+        setDraft(text); setMedia(localMedia); setPosting(false)
+        setModNote('Couldn’t upload that file — try again.'); setTimeout(() => setModNote(null), 3200)
+        return
+      }
+      uploaded = { url: up.url, type: up.type }
+    }
+    const { error } = await createPost(text, composeAudience, uploaded)
     if (error) {
-      // Post failed (offline / server error) — put the draft back so the user's
-      // words aren't silently lost.
-      setDraft(text)
+      // Failed (offline/server) — restore the draft + media so nothing is lost.
+      setDraft(text); setMedia(localMedia)
     } else {
       await load(feed)
     }
     setPosting(false)
+  }
+
+  // Inline edit of my own post's text.
+  const startEdit = (p) => { setModerating(null); setEditingId(p.id); setEditDraft(p.content || '') }
+  const saveEdit = async (p) => {
+    const text = editDraft.trim()
+    if (!text && !p.mediaUrl) return // don't let an edit blank out a text-only post
+    setSavingEdit(true)
+    const { error } = await updatePost(p.id, { content: text })
+    if (!error) setPosts((arr) => arr.map((x) => (x.id === p.id ? { ...x, content: text } : x)))
+    setSavingEdit(false); setEditingId(null)
+  }
+
+  // Delete my own post (after confirmation).
+  const doDelete = async (p) => {
+    setConfirmDelete(null); setModerating(null)
+    setPosts((arr) => arr.filter((x) => x.id !== p.id))
+    await deletePost(p.id)
+    setModNote('Post deleted.'); setTimeout(() => setModNote(null), 2600)
   }
 
   const like = async (p) => {
@@ -178,17 +251,40 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
         ) : (
         <>
         {/* Composer */}
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
-          <Avatar url={profile.avatarUrl} name={profile.name} username={profile.username} size={40} />
-          <View style={{ flex: 1 }}>
+        <View style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+            <Avatar url={profile.avatarUrl} name={profile.name} username={profile.username} size={40} />
             <TextInput
               value={draft} onChangeText={setDraft}
-              placeholder={feed === 'public' ? 'Share an update with everyone…' : 'Share an update with your friends…'}
+              placeholder={composeAudience === 'public' ? 'Share an update with everyone…' : 'Share an update with your friends…'}
               placeholderTextColor={C.faint2} multiline
-              style={{ fontFamily: F.body, fontSize: 15, color: C.ink, paddingVertical: 6, minHeight: 24 }}
+              style={{ flex: 1, fontFamily: F.body, fontSize: 15, color: C.ink, paddingVertical: 6, minHeight: 24 }}
             />
-            {draft.trim().length > 0 && (
-              <Pressable onPress={post} disabled={posting} style={{ alignSelf: 'flex-end', marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.amber }}>
+          </View>
+
+          {/* Attached-media preview */}
+          {media && (
+            <View style={{ marginTop: 12, marginLeft: 52 }}>
+              <PostMedia uri={media.uri} type={media.type} height={180} />
+              <Pressable onPress={() => setMedia(null)} hitSlop={8} style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(7,7,15,0.78)' }}>
+                <X size={15} color="#fff" strokeWidth={2.4} />
+              </Pressable>
+            </View>
+          )}
+
+          {/* Action bar: attach media · audience · post */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginLeft: 52 }}>
+            <Pressable onPress={pickMedia} hitSlop={6} style={composerChip}>
+              <ImagePlus size={15} color={C.violet} strokeWidth={2.2} />
+              <Text style={composerChipTxt}>Photo/Video</Text>
+            </Pressable>
+            <Pressable onPress={() => setComposeAudience((a) => (a === 'public' ? 'friends' : 'public'))} hitSlop={6} style={composerChip}>
+              {composeAudience === 'public' ? <Globe size={14} color={C.violet} strokeWidth={2.2} /> : <Lock size={14} color={C.violet} strokeWidth={2.2} />}
+              <Text style={composerChipTxt}>{composeAudience === 'public' ? 'Public' : 'Friends'}</Text>
+            </Pressable>
+            <View style={{ flex: 1 }} />
+            {(draft.trim().length > 0 || media) && (
+              <Pressable onPress={post} disabled={posting} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.amber }}>
                 {posting ? <ActivityIndicator size="small" color={C.amberInk} /> : <Send size={13} color={C.amberInk} strokeWidth={2.4} />}
                 <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.amberInk }}>Post</Text>
               </Pressable>
@@ -228,19 +324,54 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
                   <Avatar url={p.author?.avatar_url} name={p.author?.full_name} username={p.author?.username} size={40} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontFamily: F.semibold, fontSize: 14.5, color: C.ink }}>{p.author?.full_name || 'NorthStar member'}</Text>
-                    <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>
-                      {p.author?.username ? `@${p.author.username} · ` : ''}{timeAgo(p.createdAt)}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 }}>
+                      <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint }}>
+                        {p.author?.username ? `@${p.author.username} · ` : ''}{timeAgo(p.createdAt)}
+                      </Text>
+                      {/* Friends-only badge so authors can see a post's audience at a glance */}
+                      {p.audience === 'friends' && (
+                        <>
+                          <Lock size={10} color={C.faint} strokeWidth={2.2} />
+                          <Text style={{ fontFamily: F.medium, fontSize: 11, color: C.faint }}>Friends</Text>
+                        </>
+                      )}
+                    </View>
                   </View>
                 </Pressable>
-                {/* Report / block — only on other people's posts */}
-                {p.userId !== myId && (
-                  <Pressable onPress={() => setModerating(p)} hitSlop={10} style={{ padding: 4 }}>
-                    <MoreHorizontal size={18} color={C.faint} strokeWidth={2.2} />
-                  </Pressable>
-                )}
+                {/* “…” menu — edit/delete on my posts, report/block on others’ */}
+                <Pressable onPress={() => setModerating(p)} hitSlop={10} style={{ padding: 4 }}>
+                  <MoreHorizontal size={18} color={C.faint} strokeWidth={2.2} />
+                </Pressable>
               </View>
-              <Text style={{ fontFamily: F.body, fontSize: 15, color: C.ink2, lineHeight: 22, marginTop: 10 }}>{p.content}</Text>
+
+              {/* Body — inline editor for my own post, otherwise the text + media */}
+              {editingId === p.id ? (
+                <View style={{ marginTop: 10 }}>
+                  <TextInput
+                    value={editDraft} onChangeText={setEditDraft} multiline autoFocus
+                    placeholder="Edit your post…" placeholderTextColor={C.faint2}
+                    style={{ fontFamily: F.body, fontSize: 15, color: C.ink, backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.lineStrong, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, minHeight: 64, textAlignVertical: 'top' }}
+                  />
+                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                    <Pressable onPress={() => setEditingId(null)} style={{ borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 1, borderColor: C.lineStrong }}>
+                      <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>Cancel</Text>
+                    </Pressable>
+                    <Pressable onPress={() => saveEdit(p)} disabled={savingEdit} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7, backgroundColor: C.amber }}>
+                      {savingEdit ? <ActivityIndicator size="small" color={C.amberInk} /> : null}
+                      <Text style={{ fontFamily: F.bold, fontSize: 12.5, color: C.amberInk }}>Save</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  {p.content ? <Text style={{ fontFamily: F.body, fontSize: 15, color: C.ink2, lineHeight: 22, marginTop: 10 }}>{p.content}</Text> : null}
+                  {p.mediaUrl ? (
+                    <View style={{ marginTop: 12 }}>
+                      <PostMedia uri={p.mediaUrl} type={p.mediaType} height={260} />
+                    </View>
+                  ) : null}
+                </>
+              )}
 
               {/* Streak + dream-progress strip — the author's momentum, under the post.
                   Progress is shown for my own posts (computed locally); friends' posts
@@ -277,30 +408,67 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
         )}
       </ScrollView>
 
-      {/* Report / block action sheet */}
+      {/* Post action sheet — mine: edit/delete · others’: report/block */}
       {moderating && (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(7,7,15,0.82)', justifyContent: 'flex-end', zIndex: 260 }}>
           <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setModerating(null)} />
           <View style={{ backgroundColor: C.card, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderColor: C.lineMid, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 34 }}>
             <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.dim, marginBottom: 14 }}>
-              {moderating.author?.username ? `@${moderating.author.username}` : (moderating.author?.full_name || 'This member')}’s post
+              {moderating.userId === myId ? 'Your post' : `${moderating.author?.username ? '@' + moderating.author.username : (moderating.author?.full_name || 'This member')}’s post`}
             </Text>
-            <Pressable onPress={() => doReport(moderating)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
-              <Flag size={18} color={C.ink} strokeWidth={2.2} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.ink }}>Report post</Text>
-                <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Flag it for our team to review.</Text>
-              </View>
-            </Pressable>
-            <Pressable onPress={() => doBlock(moderating)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }}>
-              <Ban size={18} color={C.red} strokeWidth={2.2} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.red }}>Block this user</Text>
-                <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Hide all their posts. They won’t see yours either.</Text>
-              </View>
-            </Pressable>
+            {moderating.userId === myId ? (
+              <>
+                <Pressable onPress={() => startEdit(moderating)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
+                  <Pencil size={18} color={C.ink} strokeWidth={2.2} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.ink }}>Edit post</Text>
+                    <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Change what you wrote.</Text>
+                  </View>
+                </Pressable>
+                <Pressable onPress={() => { setModerating(null); setConfirmDelete(moderating) }} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }}>
+                  <Trash2 size={18} color={C.red} strokeWidth={2.2} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.red }}>Delete post</Text>
+                    <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Remove it for everyone. Can’t be undone.</Text>
+                  </View>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable onPress={() => doReport(moderating)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
+                  <Flag size={18} color={C.ink} strokeWidth={2.2} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.ink }}>Report post</Text>
+                    <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Flag it for our team to review.</Text>
+                  </View>
+                </Pressable>
+                <Pressable onPress={() => doBlock(moderating)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }}>
+                  <Ban size={18} color={C.red} strokeWidth={2.2} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.red }}>Block this user</Text>
+                    <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Hide all their posts. They won’t see yours either.</Text>
+                  </View>
+                </Pressable>
+              </>
+            )}
             <Pressable onPress={() => setModerating(null)} style={{ marginTop: 12, borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: C.lineStrong }}>
               <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.dim }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(7,7,15,0.86)', alignItems: 'center', justifyContent: 'center', padding: 28, zIndex: 280 }}>
+          <View style={{ width: '100%', maxWidth: 400, borderRadius: 20, padding: 22, backgroundColor: C.card, borderWidth: 1, borderColor: C.lineMid }}>
+            <Text style={{ fontFamily: F.display, fontSize: 16, color: C.ink, letterSpacing: 0.4, textAlign: 'center' }}>Delete this post?</Text>
+            <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.dim, lineHeight: 20, textAlign: 'center', marginTop: 8 }}>This removes it for everyone. It can’t be undone.</Text>
+            <Pressable onPress={() => doDelete(confirmDelete)} style={{ borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 20, backgroundColor: C.red }}>
+              <Text style={{ fontFamily: F.bold, fontSize: 14, color: '#fff' }}>Delete post</Text>
+            </Pressable>
+            <Pressable onPress={() => setConfirmDelete(null)} style={{ borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 10, borderWidth: 1, borderColor: C.lineStrong }}>
+              <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.dim }}>Keep it</Text>
             </Pressable>
           </View>
         </View>
@@ -372,3 +540,5 @@ function EmptyAction({ icon: Icon, label, primary, onPress }) {
 
 const iconChip = { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineMid }
 const headerCaption = { marginTop: 5, fontFamily: F.medium, fontSize: 9.5, color: C.dim, letterSpacing: 0.6, textTransform: 'uppercase' }
+const composerChip = { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }
+const composerChipTxt = { fontFamily: F.semibold, fontSize: 12, color: C.violet }
