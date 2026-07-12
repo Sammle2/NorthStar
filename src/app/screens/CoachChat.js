@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { ClipboardList, Send, Settings } from 'lucide-react-native'
+import { Send, Settings } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import { MessageBubble, PlanCard, TypingDots } from '../components/ChatBits'
@@ -289,27 +289,7 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
             </View>
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {/* Plans library — Nova is where plans are made and edited, so it's
-                the natural home; the Dashboard has a shortcut too. */}
-            <Pressable
-              onPress={() => onOpenPlans && onOpenPlans()}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                borderRadius: 999,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                backgroundColor: C.lineSoft,
-                borderWidth: 1,
-                borderColor: C.lineStrong,
-              }}
-            >
-              <ClipboardList size={14} color={C.violet} strokeWidth={2.2} />
-              <Text style={{ fontFamily: F.body, fontSize: 12, color: C.violet }}>Plans</Text>
-            </Pressable>
-            <View>
+          <View>
             <Pressable
               onPress={() => setShowToneMenu((s) => !s)}
               style={{
@@ -370,7 +350,6 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
                 })}
               </View>
             )}
-            </View>
           </View>
         </View>
 
