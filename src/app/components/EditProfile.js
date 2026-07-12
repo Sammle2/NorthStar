@@ -58,8 +58,15 @@ export default function EditProfile({ profile, onUpdate, onClose }) {
         return
       }
     }
-    const next = { ...profile, username: uname, name: name.trim() || profile.name, bio: bio.trim(), location: city.trim(), visibility, avatarUrl }
-    onUpdate(next) // persist locally + debounced projection sync
+    // Merge the edits onto the CURRENT profile via a functional updater — save()
+    // resumes after the async username check, so spreading the render-time
+    // `profile` would clobber any change that landed meanwhile (e.g. a background
+    // goal upgrade). Capture the merged result for the immediate projection sync.
+    let next
+    onUpdate((prof) => {
+      next = { ...prof, username: uname, name: name.trim() || prof.name, bio: bio.trim(), location: city.trim(), visibility, avatarUrl }
+      return next
+    })
     await saveProfileNow(next) // immediate projection so friends see it now
     setSaving(false)
     onClose()

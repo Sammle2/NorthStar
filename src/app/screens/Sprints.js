@@ -47,7 +47,10 @@ function buildSchedule(titles, horizonDays) {
     })
   }
   return titles.map((t, i) => {
-    const offset = n > 1 ? Math.round((i * (horizonDays - 1)) / (n - 1)) : 0
+    // Spread steps across the window; a lone step (e.g. the AI-failed fallback)
+    // lands on the due day, not today — otherwise a "this month" sprint shows
+    // "due today".
+    const offset = n > 1 ? Math.round((i * (horizonDays - 1)) / (n - 1)) : Math.max(0, horizonDays - 1)
     const d = new Date(now); d.setHours(9, 0, 0, 0); d.setDate(d.getDate() + offset)
     return mk(t, i, d.toISOString())
   })
@@ -119,7 +122,10 @@ export default function Sprints({ profile, onUpdate }) {
         createdAt: new Date().toISOString(),
         ...(g ? { linkedGoalId: g.id, goalTitle: g.title, goalCategory: g.category } : {}),
       }
-      onUpdate({ ...profile, sprints: [sprint, ...sprints] })
+      // Functional updater: this write lands AFTER the ~1-3s AI call, so it must
+      // merge onto the CURRENT profile — otherwise a step the user toggled on an
+      // existing sprint (or any other change) during the wait gets clobbered.
+      onUpdate((prof) => ({ ...prof, sprints: [sprint, ...(prof.sprints || [])] }))
       reset()
     } catch (e) {
       setError(e?.message || 'Could not build the plan. Try again.')
