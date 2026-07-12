@@ -323,6 +323,70 @@ Return ONLY this JSON, no prose, no code fences:
   return plan
 }
 
+// Short noun for each plan kind, used only to phrase the generation prompt (the
+// UI labels come from aiEngine.planKindLabel).
+const PLAN_KIND_NOUN = {
+  workout: 'workout program',
+  diet: 'diet / eating plan',
+  study: 'study plan',
+  habit: 'habit & routine system',
+  custom: 'plan',
+}
+
+// Nova builds a generic, personal, checkable plan on request — a workout split, a
+// diet, a study schedule, anything. Returns loose JSON in the plans shape
+// { title, summary, sections:[{ title, items:[{ text, detail }] }] }; the caller
+// runs it through aiEngine.normalizePlan for the exact app shape. Uses a bigger
+// token budget than a chat turn because a full plan is larger than a reply — this
+// is why plan-building is its own call, not crammed into coachRespond.
+export async function generatePlan({ profile, kind = 'custom', brief = '' }) {
+  const firstName = (profile?.name || '').split(' ')[0] || 'they'
+  const tone = profile?.coachTone || 'default'
+  const dream = profile?.dreamDescription || profile?.primaryGoalRaw || ''
+  const memoryFacts = (profile?.coachMemory?.facts || []).map((f) => `- ${f.text}`).join('\n')
+
+  const KIND_GUIDE = {
+    workout: 'Sections are training days or a weekly split (e.g. "Day 1 — Push"). Items are individual exercises with sets×reps in the text (e.g. "Bench press — 4×8"); detail carries a form cue, tempo, or load guidance.',
+    diet: 'Sections are meals or days (e.g. "Breakfast", "Day 1"). Items are specific foods or dishes with a rough portion in the text; detail can note calories/macros or an easy swap.',
+    study: 'Sections are weeks or topics. Items are specific study tasks; detail names the resource to use or the output to produce.',
+    habit: 'Sections are parts of the day or habit groups (e.g. "Morning"). Items are the specific habits; detail gives the trigger or the daily target.',
+    custom: 'Group related actions into sensible sections. Each item is one concrete, checkable action; detail is an optional one-line cue.',
+  }
+
+  const prompt = `You are ${firstName}'s personal coach, Nova. Build them a concrete, personal ${PLAN_KIND_NOUN[kind] || 'plan'} they can actually follow and check off day to day.
+
+What they asked for: "${brief || 'a plan to help with their goal'}"
+${dream ? `Their bigger dream: "${dream}"` : ''}
+Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
+${memoryFacts ? `What you already know about them:\n${memoryFacts}` : ''}
+
+${KIND_GUIDE[kind] || KIND_GUIDE.custom}
+
+RULES:
+- Make it specific to what THEY asked — honor their numbers, equipment, level, schedule, and constraints. If they gave little detail, make sensible, beginner-friendly assumptions rather than staying vague.
+- 3 to 6 sections, each with 3 to 8 items. Every item is ONE concrete, checkable thing.
+- "text" is the short line shown as a checklist item; "detail" (optional) is a one-line cue, portion, target, or how-to. Plain text only — no markdown, no numbering, no leading dashes.
+- "summary" is one motivating sentence describing the whole plan.
+
+Return ONLY this JSON, no prose, no code fences:
+{
+  "title": "<short plan title, Title Case>",
+  "summary": "<one sentence>",
+  "sections": [
+    { "title": "<section name>", "items": [ { "text": "<checklist line>", "detail": "<optional one-line cue>" } ] }
+  ]
+}`
+
+  // A full multi-section plan is large — give it real headroom so the JSON never
+  // truncates mid-array (1800 tokens cut a 4-day workout plan off at ~section 3).
+  const response = await callClaude(prompt, 4000)
+  const plan = extractJson(response)
+  if (!plan || !Array.isArray(plan.sections) || plan.sections.length === 0) {
+    throw new Error('Invalid plan format')
+  }
+  return plan
+}
+
 // Break a sprint task into a short, ordered list of concrete step titles sized
 // to its time horizon (a few hours if it's due today, otherwise a handful of
 // days). Returns an array of step strings; the caller assigns the schedule.
@@ -489,6 +553,33 @@ export function applyGoalAction(goals, action) {
   return null
 }
 
+// Apply a plan action to profile.plans (mirrors applyGoalAction). Returns the new
+// plans array or null on a no-op. `add` prepends so the newest plan is first;
+// `replace` swaps the plan with the matching id in place (falling back to add if
+// the id isn't found); `remove` drops by id. The caller applies this against the
+// CURRENT plans at write time, never a stale snapshot.
+export function applyPlanAction(plans, action) {
+  const list = Array.isArray(plans) ? plans.slice() : []
+  if (!action || !action.type) return null
+  if (action.type === 'remove' && action.planId) {
+    const next = list.filter((p) => p.id !== action.planId)
+    return next.length !== list.length ? next : null
+  }
+  if (action.type === 'add' && action.plan) {
+    return [action.plan, ...list]
+  }
+  if (action.type === 'replace' && action.plan) {
+    if (!action.planId) return [action.plan, ...list]
+    let changed = false
+    const next = list.map((p) => {
+      if (p.id === action.planId) { changed = true; return { ...action.plan, id: action.planId } }
+      return p
+    })
+    return changed ? next : [action.plan, ...list]
+  }
+  return null
+}
+
 // Context-aware Coach reply — understands the user's tone preference, dream,
 // current goals, streak, and the recent conversation, responds in character, and
 // (when they clearly ask) adjusts their goals. Returns { reply, action } — the
@@ -505,6 +596,12 @@ export async function coachRespond({ profile, history = [], userText }) {
   const goalList = goals.length
     ? goals.map((g) => `- id:${g.id} | "${g.title}" | ${Math.round(g.progress || 0)}% complete${g === primary ? ' (primary)' : ''}`).join('\n')
     : '(no goals yet)'
+  // Plans they've already saved — so Nova can offer to REDO an existing one
+  // ("rebuild my diet") by referencing its id, instead of always adding a new one.
+  const plans = profile?.plans || []
+  const planList = plans.length
+    ? plans.map((p) => `- id:${p.id} | ${p.kind} plan: "${p.title}"`).join('\n')
+    : '(none yet)'
   // Long-term memory: distilled facts about THIS user from all their past chats
   // (profile.coachMemory, maintained by distillCoachMemory below). This is what
   // lets Nova remember someone beyond the rolling 60-message history window.
@@ -524,6 +621,9 @@ ${memoryFacts || '(nothing yet — you are still getting to know them)'}
 Their current goals:
 ${goalList}
 
+Structured plans they've saved (workout / diet / study / habit / etc.):
+${planList}
+
 Coaching tone you must embody: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
 Recent conversation:
@@ -533,10 +633,13 @@ ${firstName}'s latest message: "${userText}"
 
 Decide if they are explicitly asking to change a goal — add a new one, rename/refocus an existing one, or drop one. Only act when the intent is unambiguous; otherwise just talk. When you do act, your reply should confirm the change warmly.
 
+Also decide if they are explicitly asking you to BUILD or REDO a structured, multi-part plan — a workout program, a diet / meal plan, a study schedule, a habit routine, or similar. Only when the intent is unambiguous (a passing mention of exercise or food is NOT a request). If so, set planRequest.wants=true, pick the closest kind, and write a one-line brief capturing exactly what to build — include every specific they gave (level, days per week, equipment, calorie/macro target, deadline, constraints, preferences). If they are clearly asking to redo or replace one of the saved plans listed above, put its id in replacePlanId. When wants=true, DO NOT write the plan out in your reply — the plan is generated separately and saved to their Plans; just warmly confirm you're building it now. Otherwise leave planRequest.wants=false.
+
 Return ONLY this JSON, no prose, no code fences:
 {
   "reply": "<in-character reply, 1-3 sentences, no name prefix, no quotes>",
-  "action": { "type": "none|add|edit|remove", "goalId": "<existing id for edit/remove>", "title": "<new or updated goal title for add/edit>" }
+  "action": { "type": "none|add|edit|remove", "goalId": "<existing id for edit/remove>", "title": "<new or updated goal title for add/edit>" },
+  "planRequest": { "wants": false, "kind": "workout|diet|study|habit|custom", "brief": "<one line describing exactly what to build>", "replacePlanId": "" }
 }`
 
   const text = await callClaude(prompt, 500)
@@ -555,7 +658,13 @@ Return ONLY this JSON, no prose, no code fences:
   const reply = (parsed?.reply || '').trim() || null
   const raw = parsed?.action
   const action = raw && raw.type && raw.type !== 'none' ? raw : null
-  return { reply, action }
+  // A plan request is a lightweight signal; the heavy plan is built by
+  // generatePlan (a separate, bigger call) so this chat turn stays cheap.
+  const pr = parsed?.planRequest
+  const planRequest = pr && pr.wants === true
+    ? { kind: pr.kind || 'custom', brief: String(pr.brief || userText || '').slice(0, 400), replacePlanId: pr.replacePlanId || null }
+    : null
+  return { reply, action, planRequest }
 }
 
 export default {
@@ -568,7 +677,10 @@ export default {
   generateRoadmap,
   generateSupportingGoals,
   generateSprintPlan,
+  generatePlan,
   judgeGoal,
   coachRespond,
   distillCoachMemory,
+  applyGoalAction,
+  applyPlanAction,
 }

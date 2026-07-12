@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
-import { Bell, CheckCircle2, Circle, Clock, Settings as SettingsIcon, Zap } from 'lucide-react-native'
+import { Bell, BookOpen, CheckCircle2, Circle, ClipboardList, Clock, Dumbbell, Repeat, Settings as SettingsIcon, Utensils, Zap } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import GlowProgress from '../components/GlowProgress'
 import StreakBadge from '../components/StreakBadge'
-import { COACH_MESSAGES, NN_TIME_OPTIONS, generateNonNegotiables } from '../aiEngine'
+import { COACH_MESSAGES, NN_TIME_OPTIONS, generateNonNegotiables, planKindLabel, planProgress } from '../aiEngine'
 import { currentStreak, getGreeting, todayKey, yesterdayKey } from '../store'
+
+const KIND_ICON = { workout: Dumbbell, diet: Utensils, study: BookOpen, habit: Repeat, custom: ClipboardList }
 
 // Screen 4 — the home. A clean, emoji-free checklist of exactly three
 // non-negotiables for today. Hit all three and the day's streak is locked in.
-export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoach }) {
+export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoach, onOpenPlans }) {
   const firstName = profile.name.split(' ')[0]
   const today = todayKey()
+  const plans = profile.plans || []
   const todayNN = profile.nonNeg?.[today]
   const [editingTime, setEditingTime] = useState(null)
 
@@ -169,6 +172,46 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
           </View>
         ))}
       </View>
+
+      {/* Your Plans — one-tap shortcut into the Plans library. Only shows once a
+          plan exists, so an empty state never clutters the home screen. */}
+      {plans.length > 0 && (
+        <View style={{ marginTop: 24 }}>
+          <View style={{ paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Text style={{ fontFamily: F.display, fontSize: 12, color: C.faint, letterSpacing: 2.2 }}>YOUR PLANS</Text>
+            <Pressable onPress={() => onOpenPlans && onOpenPlans()} hitSlop={8}>
+              <Text style={{ fontFamily: F.semibold, fontSize: 12, color: C.violet }}>See all →</Text>
+            </Pressable>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 24 }}>
+            {plans.map((plan) => {
+              const Icon = KIND_ICON[plan.kind] || ClipboardList
+              const { done, total } = planProgress(plan)
+              return (
+                <Pressable
+                  key={plan.id}
+                  onPress={() => onOpenPlans && onOpenPlans(plan.id)}
+                  style={({ pressed }) => ({ width: 190, borderRadius: 16, padding: 15, backgroundColor: pressed ? 'rgba(167,139,250,0.16)' : C.card, borderWidth: 1, borderColor: pressed ? C.violet : C.line })}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill }}>
+                      <Icon size={18} color={C.violet} strokeWidth={2.1} />
+                    </View>
+                    <Text style={{ fontFamily: F.semibold, fontSize: 9.5, color: C.violet, letterSpacing: 1.2 }}>{planKindLabel(plan.kind).toUpperCase()}</Text>
+                  </View>
+                  <Text style={{ fontFamily: F.medium, fontSize: 14, color: C.ink, marginTop: 11 }} numberOfLines={2}>{plan.title}</Text>
+                  {total > 0 && (
+                    <View style={{ marginTop: 12 }}>
+                      <GlowProgress value={(done / total) * 100} color={done === total ? C.green : C.violet} height={5} />
+                      <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint, marginTop: 6 }}>{done}/{total} done</Text>
+                    </View>
+                  )}
+                </Pressable>
+              )
+            })}
+          </ScrollView>
+        </View>
+      )}
 
       {/* Coach check-in line */}
       <View style={{ paddingHorizontal: 24, marginTop: 24 }}>

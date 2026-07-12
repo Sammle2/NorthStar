@@ -38,6 +38,7 @@ import Social from './src/app/screens/Social'
 import DMs from './src/app/screens/DMs'
 import AddFriends from './src/app/components/AddFriends'
 import CoachChat from './src/app/screens/CoachChat'
+import Plans from './src/app/screens/Plans'
 import Settings from './src/app/screens/Settings'
 import Navigation from './src/app/components/Navigation'
 import CoachReview from './src/app/components/CoachReview'
@@ -99,6 +100,8 @@ export default function App() {
   const [boundaryKey, setBoundaryKey] = useState(0) // bump to remount the tab tree after a caught crash
   const [showDMs, setShowDMs] = useState(false)
   const [showAddFriends, setShowAddFriends] = useState(false)
+  const [showPlans, setShowPlans] = useState(false)
+  const [plansFocusId, setPlansFocusId] = useState(null)
   const [socialReload, setSocialReload] = useState(0)
   const [banner, setBanner] = useState(null)
   const [resendState, setResendState] = useState('idle') // idle | sending | sent | error
@@ -342,6 +345,13 @@ export default function App() {
     persist({ ...cur, profile })
   }
 
+  // Open the Plans overlay, optionally jumping straight to one plan's detail
+  // (used by the inline chat plan cards and the Dashboard shortcuts).
+  const openPlans = (planId = null) => {
+    setPlansFocusId(typeof planId === 'string' ? planId : null)
+    setShowPlans(true)
+  }
+
   const handleSignInSuccess = async (user) => {
     console.log('[Auth] Sign-in success:', user.email)
     setAuthUser(user)
@@ -401,6 +411,7 @@ export default function App() {
     lastCheckIn: null,
     streak: 0,
     goals: [],
+    plans: [],
     dailyActions: [],
     nonNeg: {},
     lastCheckInDate: null,
@@ -689,11 +700,11 @@ export default function App() {
         <View style={{ flex: 1 }}>
           <ErrorBoundary key={`${tab}-${boundaryKey}`} onReset={() => setBoundaryKey((k) => k + 1)}>
             <TabFade tabKey={tab}>
-              {tab === 'dashboard' && <Dashboard profile={p} onUpdate={updateProfile} onOpenSettings={() => setShowSettings(true)} onOpenCoach={() => setTab('coach')} />}
+              {tab === 'dashboard' && <Dashboard profile={p} onUpdate={updateProfile} onOpenSettings={() => setShowSettings(true)} onOpenCoach={() => setTab('coach')} onOpenPlans={openPlans} />}
               {tab === 'roadmap' && <Roadmap profile={p} onUpdate={updateProfile} onRedoGoal={setEditingGoal} />}
               {tab === 'sprints' && <Sprints profile={p} onUpdate={updateProfile} />}
               {tab === 'community' && <Social profile={p} reloadKey={socialReload} onOpenDMs={() => setShowDMs(true)} onOpenAddFriends={() => setShowAddFriends(true)} />}
-              {tab === 'coach' && <CoachChat profile={p} onUpdate={updateProfile} />}
+              {tab === 'coach' && <CoachChat profile={p} onUpdate={updateProfile} onOpenPlans={openPlans} />}
             </TabFade>
           </ErrorBoundary>
 
@@ -725,6 +736,7 @@ export default function App() {
           {editingGoal && <GoalEditor goal={editingGoal} onSave={handleGoalSave} onCancel={() => setEditingGoal(null)} dream={p.dreamDescription} />}
           {showDMs && <DMs profile={p} onClose={() => setShowDMs(false)} onOpenAddFriends={() => { setShowDMs(false); setShowAddFriends(true) }} />}
           {showAddFriends && <AddFriends profile={p} onClose={() => setShowAddFriends(false)} onChanged={() => setSocialReload((k) => k + 1)} />}
+          {showPlans && <Plans profile={p} onUpdate={updateProfile} initialPlanId={plansFocusId} onClose={() => setShowPlans(false)} />}
         </View>
       )}
       </ErrorBoundary>

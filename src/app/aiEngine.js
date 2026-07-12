@@ -754,3 +754,69 @@ export function coachReply(tone, text) {
   const responses = COACH_RESPONSES[tone]
   return responses[getResponseKey(text)] || responses.default
 }
+
+// ─── Plans ──────────────────────────────────────────────────────────────────
+// A "plan" is a lightweight, generic structured document Nova can build on
+// request — a workout split, a diet, a study schedule, a habit routine, anything.
+// ONE shape (sections → items) flexes to fit them all, and the whole thing rides
+// the profile blob so it syncs and is available on every device with no new
+// backend table. normalizePlan is the tolerant guard that turns a loose AI/JSON
+// payload into the exact shape the UI renders, so a malformed response can never
+// crash the Plans screen (it mirrors normalizeAiGoal's defensiveness).
+export const PLAN_KINDS = ['workout', 'diet', 'study', 'habit', 'custom']
+const PLAN_KIND_LABELS = { workout: 'Workout', diet: 'Diet', study: 'Study', habit: 'Habit', custom: 'Plan' }
+export const planKindLabel = (kind) => PLAN_KIND_LABELS[kind] || 'Plan'
+
+const planId = (p) => `${p}-${Math.random().toString(36).slice(2, 8)}`
+const clampStr = (s, n) => String(s == null ? '' : s).trim().slice(0, n)
+
+// Count checklist items and how many are done — used for the "M/N" progress that
+// makes any plan double as a checklist on its card.
+export function planProgress(plan) {
+  const items = (plan?.sections || []).flatMap((s) => s.items || [])
+  return { done: items.filter((i) => i.done).length, total: items.length }
+}
+
+export function normalizePlan(raw, opts = {}) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const kind = PLAN_KINDS.includes(opts.kind) ? opts.kind : PLAN_KINDS.includes(src.kind) ? src.kind : 'custom'
+  const title = clampStr(src.title, 80) || `${planKindLabel(kind)} plan`
+  const summary = clampStr(src.summary, 200)
+
+  const sections = (Array.isArray(src.sections) ? src.sections : [])
+    .slice(0, 12)
+    .map((s, i) => {
+      const sec = s && typeof s === 'object' ? s : {}
+      const items = (Array.isArray(sec.items) ? sec.items : [])
+        .slice(0, 40)
+        .map((it) => {
+          if (typeof it === 'string') {
+            const text = clampStr(it, 160)
+            return text ? { id: planId('it'), text, done: false } : null
+          }
+          const obj = it && typeof it === 'object' ? it : {}
+          const text = clampStr(obj.text || obj.title, 160)
+          if (!text) return null
+          const detail = clampStr(obj.detail, 200)
+          // Preserve a done flag when re-normalizing an existing plan.
+          return { id: planId('it'), text, ...(detail ? { detail } : {}), done: obj.done === true }
+        })
+        .filter(Boolean)
+      if (!items.length) return null
+      return { id: planId('sec'), title: clampStr(sec.title, 80) || `Section ${i + 1}`, items }
+    })
+    .filter(Boolean)
+
+  const now = new Date().toISOString()
+  return {
+    id: opts.id || planId('plan'),
+    kind,
+    title,
+    summary,
+    sections,
+    goalId: opts.goalId || (typeof src.goalId === 'string' ? src.goalId : null) || null,
+    source: 'nova',
+    createdAt: opts.createdAt || now,
+    updatedAt: now,
+  }
+}

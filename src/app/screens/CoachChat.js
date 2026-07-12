@@ -10,12 +10,12 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Send, Settings } from 'lucide-react-native'
+import { ClipboardList, Send, Settings } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
-import { MessageBubble, TypingDots } from '../components/ChatBits'
-import { COACH_MESSAGES, coachReply, actionableTitle, normalizeAiGoal } from '../aiEngine'
-import { coachRespond, applyGoalAction, distillCoachMemory, generateRoadmap } from '../../services/aiService'
+import { MessageBubble, PlanCard, TypingDots } from '../components/ChatBits'
+import { COACH_MESSAGES, coachReply, actionableTitle, normalizeAiGoal, normalizePlan } from '../aiEngine'
+import { coachRespond, applyGoalAction, applyPlanAction, distillCoachMemory, generateRoadmap, generatePlan } from '../../services/aiService'
 import { nowTime } from '../store'
 
 const TONE_LABELS = { tough: 'Tough Love', gentle: 'Supportive', default: 'Balanced' }
@@ -26,7 +26,7 @@ let idc = 0
 const nid = () => `c${Date.now()}_${idc++}`
 
 // Screen 7 — the always-on Coach. Tone switching, quick prompts, context-aware replies.
-export default function CoachChat({ profile, onUpdate }) {
+export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
   const firstName = profile.name.split(' ')[0]
   const [showToneMenu, setShowToneMenu] = useState(false)
   const [input, setInput] = useState('')
@@ -125,17 +125,22 @@ export default function CoachChat({ profile, onUpdate }) {
     // offline / without a key.
     let reply
     let action = null
+    let planRequest = null
     try {
       const res = await coachRespond({ profile: profileRef.current, history, userText })
       reply = typeof res === 'string' ? res : res?.reply
-      // NOVA may return a goal adjustment (add / edit / remove) to apply.
+      // NOVA may return a goal adjustment (add / edit / remove) to apply…
       action = (res && typeof res === 'object' && res.action) || null
+      // …and/or a request to build a structured plan (workout, diet, study, …).
+      planRequest = (res && typeof res === 'object' && res.planRequest) || null
     } catch (e) {
       console.warn('[Coach] AI reply failed, using local fallback:', e?.message)
     }
     if (!reply) reply = coachReply(profile.coachTone, userText)
 
-    setIsTyping(false)
+    // Keep the typing indicator up THROUGH plan generation when one was requested,
+    // so the input stays locked and no interim message can race the snapshot below.
+    if (!planRequest) setIsTyping(false)
     const withReply = [...withUser, { id: nid(), from: 'coach', text: reply, time: nowTime() }]
     setMessages(withReply)
     // Merge over the CURRENT profile via the updater — this write may land after the
@@ -148,7 +153,40 @@ export default function CoachChat({ profile, onUpdate }) {
     // A chat-added goal starts as an instant local template; upgrade it in the
     // background to a Nova-built roadmap specific to that goal.
     if (action?.type === 'add' && action.title) upgradeAddedGoal(String(action.title))
+    // A plan request builds the plan in the background and drops a card into the chat.
+    if (planRequest) buildPlanFromRequest(planRequest, withReply)
     maybeDistill(withReply)
+  }
+
+  // Nova was asked to build a plan: generate it with the dedicated (bigger) call,
+  // save it onto profile.plans via the functional updater, and drop an inline plan
+  // card into the chat. The typing indicator is already up (kept on from send), and
+  // the input stays locked until this resolves, so `baseMsgs` can't go stale. On any
+  // failure the local template simply isn't saved and Nova says so — never blocks.
+  const buildPlanFromRequest = async (planRequest, baseMsgs) => {
+    let planMsg
+    try {
+      const raw = await generatePlan({ profile: profileRef.current, kind: planRequest.kind, brief: planRequest.brief })
+      const plan = normalizePlan(raw, { kind: planRequest.kind, id: planRequest.replacePlanId || undefined })
+      if (!plan.sections.length) throw new Error('empty plan')
+      onUpdate((prof) => ({
+        ...prof,
+        plans: applyPlanAction(prof.plans, {
+          type: planRequest.replacePlanId ? 'replace' : 'add',
+          plan,
+          planId: planRequest.replacePlanId,
+        }) || prof.plans,
+      }))
+      const itemCount = plan.sections.reduce((n, s) => n + s.items.length, 0)
+      planMsg = { id: nid(), from: 'coach', card: { planId: plan.id, title: plan.title, kind: plan.kind, sectionCount: plan.sections.length, itemCount }, time: nowTime() }
+    } catch (e) {
+      console.warn('[Coach] plan generation failed:', e?.message)
+      planMsg = { id: nid(), from: 'coach', text: "I couldn't put that plan together just now — ask me again in a moment and I'll build it.", time: nowTime() }
+    }
+    setIsTyping(false)
+    const next = [...baseMsgs, planMsg]
+    setMessages(next)
+    persistHistory(next)
   }
 
   // Replace a freshly-added goal's template milestones with an AI roadmap built
@@ -251,7 +289,27 @@ export default function CoachChat({ profile, onUpdate }) {
             </View>
           </View>
 
-          <View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {/* Plans library — Nova is where plans are made and edited, so it's
+                the natural home; the Dashboard has a shortcut too. */}
+            <Pressable
+              onPress={() => onOpenPlans && onOpenPlans()}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                borderRadius: 999,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                backgroundColor: C.lineSoft,
+                borderWidth: 1,
+                borderColor: C.lineStrong,
+              }}
+            >
+              <ClipboardList size={14} color={C.violet} strokeWidth={2.2} />
+              <Text style={{ fontFamily: F.body, fontSize: 12, color: C.violet }}>Plans</Text>
+            </Pressable>
+            <View>
             <Pressable
               onPress={() => setShowToneMenu((s) => !s)}
               style={{
@@ -312,6 +370,7 @@ export default function CoachChat({ profile, onUpdate }) {
                 })}
               </View>
             )}
+            </View>
           </View>
         </View>
 
@@ -321,9 +380,13 @@ export default function CoachChat({ profile, onUpdate }) {
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 16, gap: 16 }}
         >
-          {messages.map((m) => (
-            <MessageBubble key={m.id} from={m.from} text={m.text} time={m.time} />
-          ))}
+          {messages.map((m) =>
+            m.card ? (
+              <PlanCard key={m.id} card={m.card} onOpen={() => onOpenPlans && onOpenPlans(m.card.planId)} />
+            ) : (
+              <MessageBubble key={m.id} from={m.from} text={m.text} time={m.time} />
+            ),
+          )}
           {isTyping && <TypingDots />}
         </ScrollView>
 
