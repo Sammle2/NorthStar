@@ -4,7 +4,7 @@ import { ArrowLeft, Check, Copy, Flame, Plus, TrendingUp, UserPlus, Users, X } f
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
 import GlowProgress from '../components/GlowProgress'
-import UserProfileModal from '../components/UserProfileModal'
+import ConnectableProfileModal from '../components/ConnectableProfileModal'
 import { todayKey, yesterdayKey } from '../store'
 import {
   createCircle, joinByCode, inviteToCircle, respondInvite, leaveCircle,
@@ -287,7 +287,9 @@ export function CircleDetail({ profile, circle, onClose }) {
         </View>
       )}
 
-      {viewing && <UserProfileModal card={viewing} onClose={() => setViewing(null)} />}
+      {/* Tap a member → their profile, with the option to add them as a friend
+          (circle-mates aren't necessarily friends). openMember skips my own card. */}
+      {viewing && <ConnectableProfileModal card={viewing} myId={myId} onClose={() => setViewing(null)} />}
     </View>
   )
 }

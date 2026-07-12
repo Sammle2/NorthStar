@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { Ban, Flag, Flame, Heart, MessageCircle, MoreHorizontal, Send, TrendingUp, UserPlus, Users, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
-import UserProfileModal from '../components/UserProfileModal'
+import ConnectableProfileModal from '../components/ConnectableProfileModal'
 import { CirclesPanel, CircleDetail } from './Circles'
 import { currentStreak } from '../store'
 import { getFriendships, getProfile, saveProfileNow } from '../../services/socialService'
@@ -313,8 +313,9 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
         </View>
       )}
 
-      {/* Tap a name/avatar in the feed → their profile (streak + % to dream) */}
-      {viewing && <UserProfileModal card={viewing} onClose={() => setViewing(null)} />}
+      {/* Tap a name/avatar in the feed → their profile (streak + % to dream),
+          with the option to add them as a friend. openProfile skips my own card. */}
+      {viewing && <ConnectableProfileModal card={viewing} myId={myId} onClose={() => setViewing(null)} onChanged={load} />}
 
       {/* A circle's stats board (opened from the Circles segment). onClose(true)
           means something changed (e.g. you left) → remount the panel to refresh. */}
