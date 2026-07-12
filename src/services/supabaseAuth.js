@@ -214,18 +214,24 @@ export async function signInWithGoogle() {
 
     if (error) throw error
 
-    // Handle the OAuth URL
+    // Handle the OAuth URL. signInWithOAuth only returns { url } — NOT a session —
+    // so we must exchange the ?code=… the browser redirect carries for a real
+    // session (same PKCE step as establishSessionFromUrl). The old code returned
+    // data.user/data.session here, which are undefined, so a successful Google
+    // sign-in silently stranded the user on the sign-in screen.
     if (data?.url) {
       const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl)
 
-      if (result.type === 'success') {
-        const url = new URL(result.url)
-        const code = url.searchParams.get('code')
-
+      if (result.type === 'success' && result.url) {
+        const code = new URL(result.url).searchParams.get('code')
         if (code) {
-          // Exchange code for session (Supabase handles this automatically)
-          return { user: data.user, session: data.session, error: null }
+          const { data: sess, error: exErr } = await supabase.auth.exchangeCodeForSession(code)
+          if (exErr) throw exErr
+          return { user: sess?.user || null, session: sess?.session || null, error: null }
         }
+      }
+      if (result.type === 'cancel' || result.type === 'dismiss') {
+        return { user: null, session: null, error: 'Sign-in cancelled' }
       }
     }
 
