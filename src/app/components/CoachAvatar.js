@@ -33,9 +33,9 @@ export default function CoachAvatar({ size = 44, showStatus = true }) {
         colors={['#241645', '#170f2e']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={{ width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(167,139,250,0.35)' }}
+        style={{ width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#000' }}
       >
-        <FacetedStar size={size * 0.62} />
+        <FacetedStar size={size * 0.96} glow />
       </LinearGradient>
       {showStatus && (
         <View

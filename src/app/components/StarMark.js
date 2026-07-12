@@ -1,5 +1,5 @@
 import React from 'react'
-import Svg, { Polygon } from 'react-native-svg'
+import Svg, { Defs, FeGaussianBlur, Filter, Polygon } from 'react-native-svg'
 
 // The NorthStar brand star (logo v23 "glass glow"): a five-point star built
 // from 10 flat facets, lit from the upper-left so each arm splits into a
@@ -54,9 +54,36 @@ function facets(shades) {
   })
 }
 
-export function FacetedStar({ size = 24, shades = PURPLE_SHADES }) {
+export function FacetedStar({ size = 24, shades = PURPLE_SHADES, glow = false }) {
+  if (!glow) {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 100 100">
+        {facets(shades).map((f, i) => (
+          <Polygon key={i} points={f.points} fill={f.fill} />
+        ))}
+      </Svg>
+    )
+  }
+  // Glow variant: the star's own silhouette, Gaussian-blurred and layered
+  // under the crisp facets — light radiates outward from every point and edge
+  // in the star's shape (not a disc), fading before the avatar's rim.
+  const SILHOUETTE = RIM.map((v) => `${v[0]},${v[1]}`).join(' ')
   return (
-    <Svg width={size} height={size} viewBox="0 0 100 100">
+    <Svg width={size} height={size} viewBox="-30 -28 160 160">
+      <Defs>
+        <Filter id="bloomWide" x="-80%" y="-80%" width="260%" height="260%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="12" />
+        </Filter>
+        <Filter id="bloomMid" x="-60%" y="-60%" width="220%" height="220%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="6" />
+        </Filter>
+        <Filter id="bloomTight" x="-40%" y="-40%" width="180%" height="180%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="2.5" />
+        </Filter>
+      </Defs>
+      <Polygon points={SILHOUETTE} fill="#8b5cf6" opacity={0.9} filter="url(#bloomWide)" />
+      <Polygon points={SILHOUETTE} fill="#a78bfa" opacity={0.7} filter="url(#bloomMid)" />
+      <Polygon points={SILHOUETTE} fill="#d6c7ff" opacity={0.9} filter="url(#bloomTight)" />
       {facets(shades).map((f, i) => (
         <Polygon key={i} points={f.points} fill={f.fill} />
       ))}
