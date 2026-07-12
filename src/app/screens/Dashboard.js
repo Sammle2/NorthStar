@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
-import { Bell, BookOpen, CheckCircle2, Circle, ClipboardList, Clock, Dumbbell, Repeat, Settings as SettingsIcon, Utensils, Zap } from 'lucide-react-native'
+import { Bell, BookOpen, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Dumbbell, Repeat, Settings as SettingsIcon, Utensils, Zap } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import GlowProgress from '../components/GlowProgress'
 import StreakBadge from '../components/StreakBadge'
@@ -173,18 +173,43 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
         ))}
       </View>
 
-      {/* Your Plans — one-tap shortcut into the Plans library. Only shows once a
-          plan exists, so an empty state never clutters the home screen. */}
-      {plans.length > 0 && (
-        <View style={{ marginTop: 24 }}>
-          <View style={{ paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <Text style={{ fontFamily: F.display, fontSize: 12, color: C.faint, letterSpacing: 2.2 }}>YOUR PLANS</Text>
-            <Pressable onPress={() => onOpenPlans && onOpenPlans()} hitSlop={8}>
-              <Text style={{ fontFamily: F.semibold, fontSize: 12, color: C.violet }}>See all →</Text>
-            </Pressable>
+      {/* My Plans — an always-visible, inviting entry into the Plans library. The
+          amber arrow signals "tap me"; the copy encourages a first plan when empty
+          and celebrates momentum once there are some. The preview strip below only
+          appears once there are plans to show. */}
+      <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+        <Pressable
+          onPress={() => onOpenPlans && onOpenPlans()}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 14,
+            borderRadius: 18,
+            padding: 18,
+            backgroundColor: pressed ? 'rgba(167,139,250,0.2)' : C.violetFill,
+            borderWidth: 1,
+            borderColor: pressed ? C.violet : C.lineStrong,
+          })}
+        >
+          <View style={{ width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(167,139,250,0.18)' }}>
+            <ClipboardList size={22} color={C.violet} strokeWidth={2.1} />
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 24 }}>
-            {plans.map((plan) => {
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.semibold, fontSize: 15.5, color: C.ink, letterSpacing: 0.2 }}>My Plans</Text>
+            <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim, marginTop: 3, lineHeight: 17 }}>
+              {plans.length > 0
+                ? `${plans.length} plan${plans.length === 1 ? '' : 's'} in motion — tap to keep it going`
+                : 'Have Nova build a workout, diet — anything. Your plans live here.'}
+            </Text>
+          </View>
+          <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: C.amber, shadowColor: C.amber, shadowOpacity: 0.5, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }}>
+            <ChevronRight size={19} color={C.amberInk} strokeWidth={2.6} />
+          </View>
+        </Pressable>
+      </View>
+      {plans.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 24, paddingTop: 12 }}>
+          {plans.map((plan) => {
               const Icon = KIND_ICON[plan.kind] || ClipboardList
               const { done, total } = planProgress(plan)
               return (
@@ -210,7 +235,6 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
               )
             })}
           </ScrollView>
-        </View>
       )}
 
       {/* Coach check-in line */}
