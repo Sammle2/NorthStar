@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { Ban, Flag, Flame, Globe, Heart, ImagePlus, Lock, MessageCircle, MoreHorizontal, Pencil, Send, Trash2, TrendingUp, UserPlus, Users, X } from 'lucide-react-native'
+import { Ban, Flag, Flame, Globe, Heart, ImagePlus, Lock, MessageCircle, MoreHorizontal, Pencil, Trash2, TrendingUp, UserPlus, Users, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
 import ConnectableProfileModal from '../components/ConnectableProfileModal'
@@ -88,7 +88,9 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
   const [posting, setPosting] = useState(false)
-  // Compose: attached media {uri,type} and the audience chosen for the new post.
+  // Compose: whether the New Post screen is open, its attached media {uri,type},
+  // and the audience chosen for the new post.
+  const [composing, setComposing] = useState(false)
   const [media, setMedia] = useState(null)
   const [composeAudience, setComposeAudience] = useState(feed === 'public' ? 'public' : 'friends')
   // Inline edit of my own post + a post pending delete confirmation.
@@ -207,6 +209,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
       // Failed (offline/server) — restore the draft + media so nothing is lost.
       setDraft(text); setMedia(localMedia)
     } else {
+      setComposing(false) // close the New Post screen
       await load(feed)
     }
     setPosting(false)
@@ -312,47 +315,16 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
           <CirclesPanel key={circlesEpoch} profile={profile} onOpenCircle={setOpenCircle} />
         ) : (
         <>
-        {/* Composer */}
-        <View style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-            <Avatar url={profile.avatarUrl} name={profile.name} username={profile.username} size={40} />
-            <TextInput
-              value={draft} onChangeText={setDraft}
-              placeholder={composeAudience === 'public' ? 'Share an update with everyone…' : 'Share an update with your friends…'}
-              placeholderTextColor={C.faint2} multiline
-              style={{ flex: 1, fontFamily: F.body, fontSize: 15, color: C.ink, paddingVertical: 6, minHeight: 24 }}
-            />
+        {/* Compose entry — a tap opens the full New Post screen (text, media, and
+            the Public/Friends choice all live there). */}
+        <Pressable onPress={() => setComposing(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.line }}>
+          <Avatar url={profile.avatarUrl} name={profile.name} username={profile.username} size={40} />
+          <Text style={{ flex: 1, fontFamily: F.body, fontSize: 15, color: C.faint2 }}>Share an update…</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 9, backgroundColor: C.amber }}>
+            <Pencil size={13} color={C.amberInk} strokeWidth={2.6} />
+            <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.amberInk }}>Post</Text>
           </View>
-
-          {/* Attached-media preview */}
-          {media && (
-            <View style={{ marginTop: 12, marginLeft: 52 }}>
-              <PostMedia uri={media.uri} type={media.type} height={180} />
-              <Pressable onPress={() => setMedia(null)} hitSlop={8} style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(7,7,15,0.78)' }}>
-                <X size={15} color="#fff" strokeWidth={2.4} />
-              </Pressable>
-            </View>
-          )}
-
-          {/* Action bar: attach media · audience · post */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginLeft: 52 }}>
-            <Pressable onPress={pickMedia} hitSlop={6} style={composerChip}>
-              <ImagePlus size={15} color={C.violet} strokeWidth={2.2} />
-              <Text style={composerChipTxt}>Photo/Video</Text>
-            </Pressable>
-            <Pressable onPress={() => setComposeAudience((a) => (a === 'public' ? 'friends' : 'public'))} hitSlop={6} style={composerChip}>
-              {composeAudience === 'public' ? <Globe size={14} color={C.violet} strokeWidth={2.2} /> : <Lock size={14} color={C.violet} strokeWidth={2.2} />}
-              <Text style={composerChipTxt}>{composeAudience === 'public' ? 'Public' : 'Friends'}</Text>
-            </Pressable>
-            <View style={{ flex: 1 }} />
-            {(draft.trim().length > 0 || media) && (
-              <Pressable onPress={post} disabled={posting} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.amber }}>
-                {posting ? <ActivityIndicator size="small" color={C.amberInk} /> : <Send size={13} color={C.amberInk} strokeWidth={2.4} />}
-                <Text style={{ fontFamily: F.bold, fontSize: 13, color: C.amberInk }}>Post</Text>
-              </Pressable>
-            )}
-          </View>
-        </View>
+        </Pressable>
 
         {/* Feed */}
         {loading ? (
@@ -469,6 +441,67 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
         </>
         )}
       </ScrollView>
+
+      {/* New Post screen — write, attach media, choose who sees it, post */}
+      {composing && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: C.bg, zIndex: 250 }}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, maxWidth: 600, width: '100%', alignSelf: 'center' }}>
+            {/* Header: close · title · Post */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
+              <Pressable onPress={() => setComposing(false)} hitSlop={10} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineMid }}>
+                <X size={18} color={C.dim} strokeWidth={2.2} />
+              </Pressable>
+              <Text style={{ fontFamily: F.display, fontSize: 15, color: C.ink, letterSpacing: 1 }}>NEW POST</Text>
+              <Pressable onPress={post} disabled={posting || (!draft.trim() && !media)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9, backgroundColor: (draft.trim() || media) && !posting ? C.amber : C.faint3 }}>
+                {posting ? <ActivityIndicator size="small" color={C.amberInk} /> : null}
+                <Text style={{ fontFamily: F.bold, fontSize: 13.5, color: C.amberInk }}>Post</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              {/* Author + current audience */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <Avatar url={profile.avatarUrl} name={profile.name} username={profile.username} size={44} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.ink }}>{profile.name || 'You'}</Text>
+                  <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>Posting {composeAudience === 'public' ? 'publicly' : 'to friends'}</Text>
+                </View>
+              </View>
+
+              {/* Text */}
+              <TextInput
+                value={draft} onChangeText={setDraft} autoFocus multiline
+                placeholder={composeAudience === 'public' ? 'Share an update with everyone…' : 'Share an update with your friends…'}
+                placeholderTextColor={C.faint2}
+                style={{ fontFamily: F.body, fontSize: 17, color: C.ink, lineHeight: 24, marginTop: 18, minHeight: 120, textAlignVertical: 'top' }}
+              />
+
+              {/* Attached-media preview */}
+              {media && (
+                <View style={{ marginTop: 6 }}>
+                  <PostMedia uri={media.uri} type={media.type} height={220} />
+                  <Pressable onPress={() => setMedia(null)} hitSlop={8} style={{ position: 'absolute', top: 8, right: 8, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(7,7,15,0.8)' }}>
+                    <X size={16} color="#fff" strokeWidth={2.4} />
+                  </Pressable>
+                </View>
+              )}
+
+              {/* Attach media */}
+              <Pressable onPress={pickMedia} style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 18, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, borderWidth: 1, borderColor: C.lineStrong }}>
+                <ImagePlus size={17} color={C.violet} strokeWidth={2.2} />
+                <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.dim }}>{media ? 'Replace photo or video' : 'Add photo or video'}</Text>
+              </Pressable>
+
+              {/* Audience — the public/private choice lives here */}
+              <Text style={{ fontFamily: F.display, fontSize: 10.5, color: C.faint, letterSpacing: 1.6, marginTop: 24, marginBottom: 10 }}>WHO CAN SEE THIS?</Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <AudienceOption icon={Globe} label="Public" desc="Everyone on NorthStar" on={composeAudience === 'public'} onPress={() => setComposeAudience('public')} />
+                <AudienceOption icon={Lock} label="Friends" desc="Only your friends" on={composeAudience === 'friends'} onPress={() => setComposeAudience('friends')} />
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
+      )}
 
       {/* Post action sheet — mine: edit/delete · others’: report/block */}
       {moderating && (
@@ -602,5 +635,13 @@ function EmptyAction({ icon: Icon, label, primary, onPress }) {
 
 const iconChip = { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineMid }
 const headerCaption = { marginTop: 5, fontFamily: F.medium, fontSize: 9.5, color: C.dim, letterSpacing: 0.6, textTransform: 'uppercase' }
-const composerChip = { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }
-const composerChipTxt = { fontFamily: F.semibold, fontSize: 12, color: C.violet }
+// The public/private choice on the New Post screen — two selectable cards.
+function AudienceOption({ icon: Icon, label, desc, on, onPress }) {
+  return (
+    <Pressable onPress={onPress} style={{ flex: 1, borderRadius: 14, padding: 14, borderWidth: 1.5, borderColor: on ? C.amber : C.lineStrong, backgroundColor: on ? 'rgba(245,158,11,0.1)' : 'transparent' }}>
+      <Icon size={18} color={on ? C.amber : C.dim} strokeWidth={2.2} />
+      <Text style={{ fontFamily: F.bold, fontSize: 14, color: on ? C.amber : C.ink, marginTop: 8 }}>{label}</Text>
+      <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginTop: 2, lineHeight: 16 }}>{desc}</Text>
+    </Pressable>
+  )
+}
