@@ -111,9 +111,10 @@ Return ONLY JSON, no prose:
 {"allowed": true}  OR  {"allowed": false, "category": "<short label>", "reason": "<one friendly sentence for the user explaining why it can't be posted>"}`
 
 // Moderate a SMALL base64 JPEG thumbnail (no data: prefix) of a photo, or a frame
-// sampled from a video. Returns { allowed, checked, reason, category }. Fails OPEN
-// (allowed: true, checked: false) on any error/uncertainty so an API hiccup never
-// blocks a legitimate post — the report/block flow is the reactive backstop.
+// sampled from a video. Returns { allowed, checked, reason, category } — `checked`
+// is false when it could NOT verify the media (no token / API error / no image).
+// The feed FAILS CLOSED: it only posts media that was checked AND allowed, so an
+// error holds the post back rather than letting unscreened media through.
 export async function moderateImage(base64Jpeg, kind = 'image') {
   try {
     if (!base64Jpeg) return { allowed: true, checked: false }

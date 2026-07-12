@@ -172,9 +172,17 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
     if (localMedia) {
       const thumb = await makeModerationThumbnail(localMedia.uri, localMedia.type)
       const verdict = await moderateImage(thumb, localMedia.type)
-      if (verdict && verdict.allowed === false) {
+      // Fail CLOSED: only post media that was actually checked AND cleared. A clear
+      // violation shows the reason; anything we couldn't verify (moderation
+      // unavailable / undecodable media) is held back rather than posted unscreened.
+      const cleared = verdict && verdict.checked === true && verdict.allowed === true
+      if (!cleared) {
         setPosting(false)
-        setModNote(verdict.reason || 'That media can’t be posted — it may violate our community guidelines.')
+        setModNote(
+          verdict && verdict.allowed === false
+            ? (verdict.reason || 'That media can’t be posted — it may violate our community guidelines.')
+            : 'Couldn’t check that media right now, so it wasn’t posted. Please try again in a moment.',
+        )
         setTimeout(() => setModNote(null), 4800)
         return
       }
