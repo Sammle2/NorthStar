@@ -3,8 +3,9 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { Ban, Flag, Flame, Heart, MessageCircle, MoreHorizontal, Send, TrendingUp, UserPlus, Users, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
+import UserProfileModal from '../components/UserProfileModal'
 import { currentStreak } from '../store'
-import { getFriendships, saveProfileNow } from '../../services/socialService'
+import { getFriendships, getProfile, saveProfileNow } from '../../services/socialService'
 import { getFriendsFeed, getPublicFeed, createPost, toggleLike } from '../../services/feedService'
 import { reportPost, blockUser } from '../../services/moderationService'
 
@@ -34,6 +35,8 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   // The post whose report/block sheet is open, and a transient confirmation note.
   const [moderating, setModerating] = useState(null)
   const [modNote, setModNote] = useState(null)
+  // The author whose profile popup is open (tap a name/avatar in the feed).
+  const [viewing, setViewing] = useState(null)
 
   // My streak + overall progress toward the dream (avg of goal progress) — shown
   // under my own posts. Friends' posts show their streak from the public projection.
@@ -123,6 +126,17 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
     setTimeout(() => setModNote(null), 3200)
   }
 
+  // Tap a name/avatar → open that person's profile (streak + % to dream, plus their
+  // dream + bio). The post already carries streak + dream_progress, so the popup
+  // shows instantly, then getProfile enriches it (RLS decides visibility, so a
+  // private stranger gets the locked state). My own posts don't open a popup.
+  const openProfile = async (author) => {
+    if (!author?.id || author.id === myId) return
+    setViewing({ ...author })
+    const full = await getProfile(author.id)
+    setViewing((v) => (v && v.id === author.id ? (full || { ...author, _private: true }) : v))
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       {/* Header: labeled Messages · My Friends/Public · Add — captions so the two
@@ -202,13 +216,15 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
           posts.map((p) => (
             <View key={p.id} style={{ paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.line }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Avatar url={p.author?.avatar_url} name={p.author?.full_name} username={p.author?.username} size={40} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: F.semibold, fontSize: 14.5, color: C.ink }}>{p.author?.full_name || 'NorthStar member'}</Text>
-                  <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>
-                    {p.author?.username ? `@${p.author.username} · ` : ''}{timeAgo(p.createdAt)}
-                  </Text>
-                </View>
+                <Pressable onPress={() => openProfile(p.author)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                  <Avatar url={p.author?.avatar_url} name={p.author?.full_name} username={p.author?.username} size={40} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: F.semibold, fontSize: 14.5, color: C.ink }}>{p.author?.full_name || 'NorthStar member'}</Text>
+                    <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 1 }}>
+                      {p.author?.username ? `@${p.author.username} · ` : ''}{timeAgo(p.createdAt)}
+                    </Text>
+                  </View>
+                </Pressable>
                 {/* Report / block — only on other people's posts */}
                 {p.userId !== myId && (
                   <Pressable onPress={() => setModerating(p)} hitSlop={10} style={{ padding: 4 }}>
@@ -287,6 +303,8 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
         </View>
       )}
 
+      {/* Tap a name/avatar in the feed → their profile (streak + % to dream) */}
+      {viewing && <UserProfileModal card={viewing} onClose={() => setViewing(null)} />}
     </View>
   )
 }
