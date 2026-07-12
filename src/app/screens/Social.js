@@ -51,9 +51,13 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
     setIncomingCount(fs.filter((f) => f.status !== 'accepted' && f.addressee_id === myId).length)
     // Accepted friends where I'm actually a party — computed once, drives both
     // the friends feed and the empty-state CTA.
-    const friendIds = fs
-      .filter((f) => f.status === 'accepted' && (f.requester_id === myId || f.addressee_id === myId))
-      .map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id))
+    // Dedup by the other party: reciprocal requests (both sent, both accepted)
+    // create two accepted rows for one friend — without this they'd double-count.
+    const friendIds = [...new Set(
+      fs
+        .filter((f) => f.status === 'accepted' && (f.requester_id === myId || f.addressee_id === myId))
+        .map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id)),
+    )]
     setFriendCount(friendIds.length)
     let rows
     if (which === 'friends') {

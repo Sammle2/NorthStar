@@ -43,7 +43,7 @@ export default function DMs({ profile, onClose, onOpenAddFriends }) {
   const openNew = async () => {
     setView('new'); setPicked([]); setGroupTitle('')
     const fs = await getFriendships()
-    const ids = fs.filter((f) => f.status === 'accepted').map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id))
+    const ids = [...new Set(fs.filter((f) => f.status === 'accepted').map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id)))]
     setFriends(await getIdentities(ids))
   }
 

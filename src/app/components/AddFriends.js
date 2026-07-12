@@ -39,12 +39,15 @@ export default function AddFriends({ profile, onClose, onChanged }) {
   useEffect(() => { load() }, [])
 
   const { friends, incoming } = useMemo(() => {
-    const friends = [], incoming = []
+    const friends = [], incoming = [], seen = new Set()
     for (const f of friendships) {
       const otherId = f.requester_id === myId ? f.addressee_id : f.requester_id
       const entry = { friendship: f, otherId, card: cards[otherId] }
-      if (f.status === 'accepted') friends.push(entry)
-      else if (f.addressee_id === myId) incoming.push(entry)
+      if (f.status === 'accepted') {
+        if (seen.has(otherId)) continue // reciprocal accept — show one card per person
+        seen.add(otherId)
+        friends.push(entry)
+      } else if (f.addressee_id === myId) incoming.push(entry)
     }
     return { friends, incoming }
   }, [friendships, cards, myId])
