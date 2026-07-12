@@ -16,10 +16,11 @@ export default function Wordmark({ text = 'NORTHSTAR', size = 52, width = 340 })
     <View style={{ width, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap }}>
       {letters.map((ch, i) =>
         ch === 'A' ? (
-          // Glow variant pads the star inside its box (star = 62.5% of it):
-          // upsize so the star stays the same, pull the padding back out of
-          // the layout so letter spacing doesn't widen.
-          <GoldStar key={i} size={fs * 1.79} glow style={{ marginHorizontal: -(fs * 0.335) }} />
+          // Glow variant pads the star inside its box (star = 62.5% of it).
+          // 1.28 puts the star's visible height at ~0.8em — optically level
+          // with the letters' cap height; the negative margin returns the
+          // glow padding to the layout so letter spacing doesn't widen.
+          <GoldStar key={i} size={fs * 1.28} glow style={{ marginHorizontal: -(fs * 0.24) }} />
         ) : (
           <Text
             key={i}
