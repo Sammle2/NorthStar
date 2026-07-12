@@ -13,7 +13,7 @@ import { openDm, sendMessage } from '../../services/dmService'
 
 // Full-screen overlay: search people, manage requests, and see your friends.
 // Opened from the people+plus icon on the Friends tab.
-export default function AddFriends({ profile, onClose, onChanged }) {
+export default function AddFriends({ profile, onClose, onChanged, onMessageUser }) {
   const myId = profile.userId
   const [friendships, setFriendships] = useState([])
   const [cards, setCards] = useState({})
@@ -159,7 +159,8 @@ export default function AddFriends({ profile, onClose, onChanged }) {
 
       {viewing && (
         <UserProfileModal card={viewing} status={statusFor(viewing.id)} busy={!!busyId} onClose={() => setViewing(null)}
-          onAdd={() => add(viewing.id)} onAccept={(fid) => accept(fid, viewing.id)} onRemove={(fid) => remove(fid)} />
+          onAdd={() => add(viewing.id)} onAccept={(fid) => accept(fid, viewing.id)} onRemove={(fid) => remove(fid)}
+          onMessage={onMessageUser ? () => { const id = viewing.id; setViewing(null); onMessageUser(id) } : undefined} />
       )}
     </View>
   )

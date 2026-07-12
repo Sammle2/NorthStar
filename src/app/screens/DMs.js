@@ -7,7 +7,7 @@ import { getConversations, getMessages, sendMessage, openDm, createGroup } from 
 import { getFriendships, getIdentities } from '../../services/socialService'
 
 // Messages — conversation list, 1:1 and group threads, and starting new chats.
-export default function DMs({ profile, onClose, onOpenAddFriends }) {
+export default function DMs({ profile, onClose, onOpenAddFriends, initialUserId }) {
   const myId = profile.userId
   const [view, setView] = useState('list') // list | thread | new
   const [convos, setConvos] = useState([])
@@ -22,13 +22,23 @@ export default function DMs({ profile, onClose, onOpenAddFriends }) {
   const [starting, setStarting] = useState(false)
 
   const loadConvos = async () => { setConvos(await getConversations(myId)); setLoading(false) }
-  useEffect(() => { loadConvos() }, [])
 
   const openThread = async (conv) => {
     setActive(conv)
     setView('thread')
     setMessages(await getMessages(conv.id))
   }
+
+  // Opened via "Message" on someone's profile → jump straight into their thread.
+  const openWith = async (userId) => {
+    const { conversationId } = await openDm(userId)
+    const fresh = await getConversations(myId)
+    setConvos(fresh); setLoading(false)
+    const conv = fresh.find((c) => c.id === conversationId)
+    if (conv) openThread(conv)
+  }
+
+  useEffect(() => { if (initialUserId) openWith(initialUserId); else loadConvos() }, [])
 
   const send = async () => {
     const text = draft.trim()

@@ -99,6 +99,7 @@ export default function App() {
   const [hasSession, setHasSession] = useState(false) // true only with an active (confirmed) session
   const [boundaryKey, setBoundaryKey] = useState(0) // bump to remount the tab tree after a caught crash
   const [showDMs, setShowDMs] = useState(false)
+  const [dmUserId, setDmUserId] = useState(null) // when set, DMs opens straight into a chat with this person
   const [showAddFriends, setShowAddFriends] = useState(false)
   const [showPlans, setShowPlans] = useState(false)
   const [plansFocusId, setPlansFocusId] = useState(null)
@@ -712,7 +713,7 @@ export default function App() {
               {tab === 'dashboard' && <Dashboard profile={p} onUpdate={updateProfile} onOpenSettings={() => setShowSettings(true)} onOpenCoach={() => setTab('coach')} onOpenPlans={openPlans} />}
               {tab === 'roadmap' && <Roadmap profile={p} onUpdate={updateProfile} onRedoGoal={setEditingGoal} />}
               {tab === 'sprints' && <Sprints profile={p} onUpdate={updateProfile} />}
-              {tab === 'community' && <Social profile={p} reloadKey={socialReload} onOpenDMs={() => setShowDMs(true)} onOpenAddFriends={() => setShowAddFriends(true)} />}
+              {tab === 'community' && <Social profile={p} reloadKey={socialReload} onOpenDMs={() => setShowDMs(true)} onOpenAddFriends={() => setShowAddFriends(true)} onMessageUser={(id) => { setDmUserId(id); setShowDMs(true) }} />}
               {tab === 'coach' && <CoachChat profile={p} onUpdate={updateProfile} onOpenPlans={openPlans} />}
             </TabFade>
           </ErrorBoundary>
@@ -743,8 +744,8 @@ export default function App() {
             />
           )}
           {editingGoal && <GoalEditor goal={editingGoal} onSave={handleGoalSave} onCancel={() => setEditingGoal(null)} dream={p.dreamDescription} />}
-          {showDMs && <DMs profile={p} onClose={() => setShowDMs(false)} onOpenAddFriends={() => { setShowDMs(false); setShowAddFriends(true) }} />}
-          {showAddFriends && <AddFriends profile={p} onClose={() => setShowAddFriends(false)} onChanged={() => setSocialReload((k) => k + 1)} />}
+          {showDMs && <DMs profile={p} initialUserId={dmUserId} onClose={() => { setShowDMs(false); setDmUserId(null) }} onOpenAddFriends={() => { setShowDMs(false); setDmUserId(null); setShowAddFriends(true) }} />}
+          {showAddFriends && <AddFriends profile={p} onClose={() => setShowAddFriends(false)} onChanged={() => setSocialReload((k) => k + 1)} onMessageUser={(id) => { setShowAddFriends(false); setDmUserId(id); setShowDMs(true) }} />}
           {showPlans && <Plans profile={p} onUpdate={updateProfile} initialPlanId={plansFocusId} onClose={() => setShowPlans(false)} />}
         </View>
       )}

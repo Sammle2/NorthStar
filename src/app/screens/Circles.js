@@ -157,7 +157,7 @@ export function CirclesPanel({ profile, onOpenCircle }) {
 }
 
 // ── Circle detail — the member stats board (full-screen overlay) ──────────────
-export function CircleDetail({ profile, circle, onClose }) {
+export function CircleDetail({ profile, circle, onClose, onMessageUser }) {
   const myId = profile.userId
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -289,7 +289,7 @@ export function CircleDetail({ profile, circle, onClose }) {
 
       {/* Tap a member → their profile, with the option to add them as a friend
           (circle-mates aren't necessarily friends). openMember skips my own card. */}
-      {viewing && <ConnectableProfileModal card={viewing} myId={myId} onClose={() => setViewing(null)} />}
+      {viewing && <ConnectableProfileModal card={viewing} myId={myId} onClose={() => setViewing(null)} onMessage={onMessageUser ? (id) => { setViewing(null); onMessageUser(id) } : undefined} />}
     </View>
   )
 }

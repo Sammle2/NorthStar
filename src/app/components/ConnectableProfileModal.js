@@ -7,7 +7,7 @@ import { getFriendships, sendFriendRequest, acceptFriendRequest, removeFriendshi
 // so the popup can add them (or accept/cancel/remove, based on the current
 // relationship). It never offers an action on your OWN card: callers already
 // avoid opening it for yourself, and statusFor double-guards on myId.
-export default function ConnectableProfileModal({ card, myId, onClose, onChanged }) {
+export default function ConnectableProfileModal({ card, myId, onClose, onChanged, onMessage }) {
   const [friendships, setFriendships] = useState(null) // null until loaded
   const [busy, setBusy] = useState(false)
 
@@ -39,6 +39,7 @@ export default function ConnectableProfileModal({ card, myId, onClose, onChanged
       onAdd={add}
       onAccept={accept}
       onRemove={remove}
+      onMessage={onMessage && card?.id ? () => onMessage(card.id) : undefined}
     />
   )
 }

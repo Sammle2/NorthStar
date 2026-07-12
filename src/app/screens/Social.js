@@ -12,6 +12,27 @@ import { getFriendsFeed, getPublicFeed, createPost, toggleLike, updatePost, dele
 import { reportPost, blockUser } from '../../services/moderationService'
 import { moderateImage } from '../../services/aiService'
 
+const MAX_VIDEO_SEC = 60 // posts can attach videos up to 1 minute
+
+// Read a video's duration in seconds. expo-image-picker reports it on native but
+// often not on web, so we load the metadata ourselves. Returns null if unknown
+// (then the length check is skipped rather than blocking a valid post).
+async function getVideoDurationSec(uri) {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return null
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (v) => { if (!done) { done = true; clearTimeout(t); resolve(v) } }
+    const t = setTimeout(() => finish(null), 6000)
+    try {
+      const v = document.createElement('video')
+      v.preload = 'metadata'; v.muted = true
+      v.onloadedmetadata = () => finish(Number.isFinite(v.duration) ? v.duration : null)
+      v.onerror = () => finish(null)
+      v.src = uri
+    } catch { finish(null) }
+  })
+}
+
 // Build a SMALL base64 JPEG (no data: prefix) from a picked photo, or a frame
 // sampled from a video, so media can be screened before it's posted. Web only
 // (canvas) and kept tiny so it fits the AI proxy's input cap. Returns null if it
@@ -81,7 +102,7 @@ function timeAgo(iso) {
 
 // The Friends tab — a social home. DMs (top-left), My Friends / Public feed
 // toggle (center), add friends (top-right), and a posts feed with a composer.
-export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey }) {
+export default function Social({ profile, onOpenDMs, onOpenAddFriends, onMessageUser, reloadKey }) {
   const myId = profile.userId
   const [feed, setFeed] = useState('friends') // 'friends' | 'public'
   const [posts, setPosts] = useState([])
@@ -153,10 +174,21 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   const pickMedia = async () => {
     try {
       await ImagePicker.requestMediaLibraryPermissionsAsync()
-      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 })
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.8, videoMaxDuration: MAX_VIDEO_SEC })
       if (res.canceled || !res.assets?.length) return
       const a = res.assets[0]
-      setMedia({ uri: a.uri, type: a.type === 'video' ? 'video' : 'image' })
+      const isVideo = a.type === 'video'
+      if (isVideo) {
+        // Cap videos at 1 minute. expo gives duration in ms (native); on web it's
+        // usually absent, so read it from the file. Unknown → don't block.
+        const durSec = a.duration ? a.duration / 1000 : await getVideoDurationSec(a.uri)
+        if (durSec != null && durSec > MAX_VIDEO_SEC + 1) {
+          setModNote(`Videos have to be 1 minute or shorter — this one is about ${Math.round(durSec)}s. Trim it and try again.`)
+          setTimeout(() => setModNote(null), 5000)
+          return
+        }
+      }
+      setMedia({ uri: a.uri, type: isVideo ? 'video' : 'image' })
     } catch (e) {
       console.warn('[Social] pickMedia failed:', e?.message)
     }
@@ -578,7 +610,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
 
       {/* Tap a name/avatar in the feed → their profile (streak + % to dream),
           with the option to add them as a friend. openProfile skips my own card. */}
-      {viewing && <ConnectableProfileModal card={viewing} myId={myId} onClose={() => setViewing(null)} onChanged={load} />}
+      {viewing && <ConnectableProfileModal card={viewing} myId={myId} onClose={() => setViewing(null)} onChanged={load} onMessage={onMessageUser ? (id) => { setViewing(null); onMessageUser(id) } : undefined} />}
 
       {/* A circle's stats board (opened from the Circles segment). onClose(true)
           means something changed (e.g. you left) → remount the panel to refresh. */}
@@ -587,6 +619,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
           profile={profile}
           circle={openCircle}
           onClose={(changed) => { setOpenCircle(null); if (changed) setCirclesEpoch((n) => n + 1) }}
+          onMessageUser={onMessageUser}
         />
       )}
     </View>

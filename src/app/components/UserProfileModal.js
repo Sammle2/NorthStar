@@ -1,6 +1,6 @@
 import React from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
-import { Check, Lock, TrendingUp, UserPlus, X } from 'lucide-react-native'
+import { Check, Lock, MessageCircle, TrendingUp, UserPlus, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from './Avatar'
 import StreakBadge from './StreakBadge'
@@ -13,7 +13,7 @@ import StreakBadge from './StreakBadge'
 //
 // Friend actions (Add / Accept / Remove) render only when `status` is provided —
 // so the Friends screen gets them, and the feed opens the same card read-only.
-export default function UserProfileModal({ card, status, busy, onClose, onAdd, onAccept, onRemove }) {
+export default function UserProfileModal({ card, status, busy, onClose, onAdd, onAccept, onRemove, onMessage }) {
   const isPrivate = card._private
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(7,7,15,0.86)', alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 260 }}>
@@ -52,7 +52,17 @@ export default function UserProfileModal({ card, status, busy, onClose, onAdd, o
             {status.kind === 'none' && <Pressable onPress={onAdd} disabled={busy} style={modalPrimary}>{busy ? <ActivityIndicator size="small" color={C.amberInk} /> : <><UserPlus size={15} color={C.amberInk} strokeWidth={2.4} /><Text style={modalPrimaryTxt}>Add friend</Text></>}</Pressable>}
             {status.kind === 'outgoing' && <Pressable onPress={() => onRemove(status.f.id)} disabled={busy} style={modalSecondary}><Text style={modalSecondaryTxt}>{busy ? 'Cancelling…' : 'Cancel request'}</Text></Pressable>}
             {status.kind === 'incoming' && <Pressable onPress={() => onAccept(status.f.id)} disabled={busy} style={modalPrimary}>{busy ? <ActivityIndicator size="small" color={C.amberInk} /> : <><Check size={15} color={C.amberInk} strokeWidth={2.6} /><Text style={modalPrimaryTxt}>Accept request</Text></>}</Pressable>}
-            {status.kind === 'friends' && <Pressable onPress={() => onRemove(status.f.id)} disabled={busy} style={modalSecondary}><Text style={modalSecondaryTxt}>{busy ? 'Removing…' : 'Remove friend'}</Text></Pressable>}
+            {status.kind === 'friends' && (
+              <>
+                {onMessage && (
+                  <Pressable onPress={onMessage} style={[modalPrimary, { marginBottom: 10 }]}>
+                    <MessageCircle size={15} color={C.amberInk} strokeWidth={2.4} />
+                    <Text style={modalPrimaryTxt}>Message</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => onRemove(status.f.id)} disabled={busy} style={modalSecondary}><Text style={modalSecondaryTxt}>{busy ? 'Removing…' : 'Remove friend'}</Text></Pressable>
+              </>
+            )}
           </View>
         )}
       </View>
