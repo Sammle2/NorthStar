@@ -58,7 +58,7 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
   // after this many hours of inactivity the ended conversation is distilled into
   // long-term memory and the chat opens fresh — Nova still remembers what
   // mattered, without one endless thread forever.
-  const SESSION_RESET_HOURS = 12
+  const SESSION_RESET_HOURS = 1
   useEffect(() => {
     const prof = profileRef.current
     const saved = prof.coachHistory
