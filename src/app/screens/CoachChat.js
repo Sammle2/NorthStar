@@ -27,7 +27,7 @@ const nid = () => `c${Date.now()}_${idc++}`
 
 // Screen 7 — the always-on Coach. Tone switching, quick prompts, context-aware replies.
 export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
-  const firstName = profile.name.split(' ')[0]
+  const firstName = (profile.name || '').split(' ')[0]
   const [showToneMenu, setShowToneMenu] = useState(false)
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)

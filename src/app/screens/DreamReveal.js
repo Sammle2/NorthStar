@@ -52,7 +52,7 @@ function useTypewriter(text, speed = 18, startDelay = 400, active = true) {
 // Screen 3 — full-screen cinematic reveal of the Coach's dream-life story.
 export default function DreamReveal({ profile, onContinue }) {
   const [phase, setPhase] = useState('intro') // intro | story | cta
-  const firstName = profile.name.split(' ')[0]
+  const firstName = (profile.name || '').split(' ')[0]
   // Strip any markdown the AI emitted (**bold**, *italic*, _under_, `code`) so the
   // story reads as clean prose — React Native Text shows those markers literally,
   // and stray asterisks broke the otherwise-uniform styling.

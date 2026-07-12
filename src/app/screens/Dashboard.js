@@ -12,7 +12,7 @@ const KIND_ICON = { workout: Dumbbell, diet: Utensils, study: BookOpen, habit: R
 // Screen 4 — the home. A clean, emoji-free checklist of exactly three
 // non-negotiables for today. Hit all three and the day's streak is locked in.
 export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoach, onOpenPlans }) {
-  const firstName = profile.name.split(' ')[0]
+  const firstName = (profile.name || '').split(' ')[0]
   const today = todayKey()
   const plans = profile.plans || []
   const todayNN = profile.nonNeg?.[today]
