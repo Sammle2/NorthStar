@@ -64,17 +64,13 @@ export function FacetedStar({ size = 24, shades = PURPLE_SHADES }) {
   )
 }
 
-// The gold star that stands in for the "A" of the wordmark, with the tiny
-// four-point sparkle on its upper-left tip (from the logo sheet).
-export function GoldStar({ size = 24, sparkle = true }) {
+// The gold star that stands in for the "A" of the wordmark.
+export function GoldStar({ size = 24 }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 100 100">
       {facets(GOLD_SHADES).map((f, i) => (
         <Polygon key={i} points={f.points} fill={f.fill} />
       ))}
-      {sparkle && (
-        <Polygon points="30,8 33.5,17.5 43,21 33.5,24.5 30,34 26.5,24.5 17,21 26.5,17.5" fill="#ffffff" opacity={0.95} />
-      )}
     </Svg>
   )
 }
