@@ -580,13 +580,21 @@ export default function App() {
     setTab('dashboard')
     setScreen('onboarding')
   }
-  const handleReviewComplete = (profile) => {
-    persist({ ...appState, profile })
+  const handleReviewComplete = (reviewed) => {
+    // Merge only what the review changed (goals + timestamp) onto the CURRENT
+    // state via the ref. The review modal can sit open across a background update
+    // (e.g. the goal upgrader), so replacing the whole stale profile would clobber it.
+    const cur = appStateRef.current
+    persist({ ...cur, profile: { ...cur.profile, goals: reviewed.goals, lastLongTermReview: reviewed.lastLongTermReview } })
     setShowReview(false)
   }
   const handleGoalSave = (updatedGoal) => {
-    const goals = p.goals.map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
-    persist({ ...appState, profile: { ...p, goals } })
+    // Read current state via the ref: onSave fires after GoalEditor's async dream
+    // check (and possibly a warning dialog the user sat on), so the render closure's
+    // appState/p could be stale and clobber a concurrent change to another goal.
+    const cur = appStateRef.current
+    const goals = (cur.profile?.goals || []).map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
+    persist({ ...cur, profile: { ...cur.profile, goals } })
     setEditingGoal(null)
   }
 
