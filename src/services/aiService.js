@@ -95,6 +95,60 @@ async function callClaude(prompt, maxTokens = 1024, retries = 3) {
   throw lastError || new Error('Claude API call failed')
 }
 
+// ── Media moderation (vision) ────────────────────────────────────────────────
+const MODERATION_PROMPT = `You are the content-safety filter for NorthStar, a self-improvement app where people share progress updates with friends. Decide whether the attached image may be posted.
+
+BLOCK it (allowed=false) only if it CLEARLY contains any of:
+- Nudity or sexual/explicit content, or sexually suggestive posing
+- Graphic violence, gore, or self-harm imagery
+- Hate symbols, or harassment targeting a person or group
+- Promotion or sale of illegal drugs or weapons
+- Anything that sexualizes or endangers a minor
+
+ALLOW it (allowed=true) otherwise — ordinary photos of people, workouts, food, pets, scenery, screenshots, text, memes, etc. If it's plainly benign, allow it. Only block when a violation is clear; when unsure, allow.
+
+Return ONLY JSON, no prose:
+{"allowed": true}  OR  {"allowed": false, "category": "<short label>", "reason": "<one friendly sentence for the user explaining why it can't be posted>"}`
+
+// Moderate a SMALL base64 JPEG thumbnail (no data: prefix) of a photo, or a frame
+// sampled from a video. Returns { allowed, checked, reason, category }. Fails OPEN
+// (allowed: true, checked: false) on any error/uncertainty so an API hiccup never
+// blocks a legitimate post — the report/block flow is the reactive backstop.
+export async function moderateImage(base64Jpeg, kind = 'image') {
+  try {
+    if (!base64Jpeg) return { allowed: true, checked: false }
+    const session = await getSession()
+    const token = session?.access_token
+    if (!token) return { allowed: true, checked: false }
+    const res = await fetch(CLAUDE_PROXY_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 200,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Jpeg } },
+            { type: 'text', text: (kind === 'video' ? 'This is a still frame sampled from a VIDEO a user wants to post. ' : '') + MODERATION_PROMPT },
+          ],
+        }],
+      }),
+    })
+    if (!res.ok) return { allowed: true, checked: false }
+    const data = await res.json()
+    const text = data?.content?.[0]?.type === 'text' ? data.content[0].text : ''
+    const parsed = extractJson(text)
+    if (parsed && parsed.allowed === false) {
+      return { allowed: false, checked: true, category: parsed.category || 'policy', reason: parsed.reason || 'This may violate our community guidelines.' }
+    }
+    return { allowed: true, checked: true }
+  } catch (e) {
+    console.warn('[moderateImage] failed (allowing):', e?.message)
+    return { allowed: true, checked: false }
+  }
+}
+
 // Reusable proxy-backed Claude call for other services (e.g. roadmap validation).
 // No API key needed — goes through the authenticated claude-proxy edge function.
 export async function runClaude(prompt, maxTokens = 1024) {
@@ -722,6 +776,7 @@ export default {
   generatePlan,
   judgeGoal,
   judgeSprint,
+  moderateImage,
   coachRespond,
   distillCoachMemory,
   applyGoalAction,

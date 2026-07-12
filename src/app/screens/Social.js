@@ -10,6 +10,46 @@ import { currentStreak } from '../store'
 import { getFriendships, getProfile, saveProfileNow } from '../../services/socialService'
 import { getFriendsFeed, getPublicFeed, createPost, toggleLike, updatePost, deletePost, uploadPostMedia } from '../../services/feedService'
 import { reportPost, blockUser } from '../../services/moderationService'
+import { moderateImage } from '../../services/aiService'
+
+// Build a SMALL base64 JPEG (no data: prefix) from a picked photo, or a frame
+// sampled from a video, so media can be screened before it's posted. Web only
+// (canvas) and kept tiny so it fits the AI proxy's input cap. Returns null if it
+// can't produce one (native / decode failure) — moderation then simply skips.
+async function makeModerationThumbnail(uri, type) {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return null
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (v) => { if (!done) { done = true; clearTimeout(timer); resolve(v) } }
+    const timer = setTimeout(() => finish(null), 8000) // never hang a post on this
+    const draw = (el, w, h) => {
+      try {
+        const MAX = 256
+        const scale = Math.min(1, MAX / Math.max(w || MAX, h || MAX))
+        const cw = Math.max(1, Math.round((w || MAX) * scale))
+        const ch = Math.max(1, Math.round((h || MAX) * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = cw; canvas.height = ch
+        canvas.getContext('2d').drawImage(el, 0, 0, cw, ch)
+        finish((canvas.toDataURL('image/jpeg', 0.5).split(',')[1]) || null)
+      } catch { finish(null) }
+    }
+    try {
+      if (type === 'video') {
+        const v = document.createElement('video')
+        v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = uri
+        v.onloadeddata = () => { try { v.currentTime = Math.min(0.6, (v.duration || 2) / 3) } catch { draw(v, v.videoWidth, v.videoHeight) } }
+        v.onseeked = () => draw(v, v.videoWidth, v.videoHeight)
+        v.onerror = () => finish(null)
+      } else {
+        const img = new window.Image()
+        img.onload = () => draw(img, img.naturalWidth, img.naturalHeight)
+        img.onerror = () => finish(null)
+        img.src = uri
+      }
+    } catch { finish(null) }
+  })
+}
 
 // Renders a post's photo or video. Video plays via a native <video> on web (the
 // deployed platform); native builds show a neutral placeholder (not shipped).
@@ -125,6 +165,20 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
     if (!text && !media) return
     setPosting(true)
     const localMedia = media
+    // Screen media BEFORE uploading — a small local thumbnail (photo, or a frame
+    // sampled from a video) goes to the vision moderator. A clear violation blocks
+    // the post with a friendly reason; any error/uncertainty falls through, and
+    // report/block remains the reactive backstop.
+    if (localMedia) {
+      const thumb = await makeModerationThumbnail(localMedia.uri, localMedia.type)
+      const verdict = await moderateImage(thumb, localMedia.type)
+      if (verdict && verdict.allowed === false) {
+        setPosting(false)
+        setModNote(verdict.reason || 'That media can’t be posted — it may violate our community guidelines.')
+        setTimeout(() => setModNote(null), 4800)
+        return
+      }
+    }
     setDraft(''); setMedia(null)
     // Guarantee my public profile row exists first — the feed's inner join
     // requires it, so without it a fresh account's post is invisible to its own
