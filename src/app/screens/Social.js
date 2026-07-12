@@ -224,12 +224,18 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
                     {(p.userId === myId ? myStreak : (p.author?.streak || 0))}-day streak
                   </Text>
                 </View>
-                {p.userId === myId && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <TrendingUp size={14} color={C.violet} strokeWidth={2.2} />
-                    <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>{myDreamPct}% to dream</Text>
-                  </View>
-                )}
+                {/* Dream progress: my own is computed locally (live); friends' comes
+                    from their public projection (dream_progress). Hidden if unknown. */}
+                {(() => {
+                  const pct = p.userId === myId ? myDreamPct : p.author?.dream_progress
+                  if (pct == null) return null
+                  return (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <TrendingUp size={14} color={C.violet} strokeWidth={2.2} />
+                      <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>{pct}% to dream</Text>
+                    </View>
+                  )
+                })()}
               </View>
 
               <Pressable onPress={() => like(p)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, alignSelf: 'flex-start' }}>

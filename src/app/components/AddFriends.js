@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
-import { Check, Clock, Lock, Search, UserPlus, Users, X } from 'lucide-react-native'
+import { Check, Clock, Lock, Search, TrendingUp, UserPlus, Users, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from './Avatar'
 import StreakBadge from './StreakBadge'
@@ -211,17 +211,26 @@ function UserProfileModal({ card, status, busy, onClose, onAdd, onAccept, onRemo
           <Avatar url={card.avatar_url} name={card.full_name} username={card.username} size={88} ring />
           <Text style={{ fontFamily: F.display, fontSize: 20, color: C.ink, letterSpacing: 0.5, marginTop: 12 }}>{card.full_name || 'NorthStar member'}</Text>
           {card.username ? <Text style={{ fontFamily: F.body, fontSize: 13, color: C.violet, marginTop: 2 }}>@{card.username}</Text> : null}
-          {!isPrivate && <View style={{ marginTop: 12 }}><StreakBadge streak={card.streak || 0} /></View>}
+          {!isPrivate && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 }}>
+              <StreakBadge streak={card.streak || 0} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }}>
+                <TrendingUp size={13} color={C.violet} strokeWidth={2.4} />
+                <Text style={{ fontFamily: F.semibold, fontSize: 12, color: C.violet }}>{card.dream_progress || 0}% to dream</Text>
+              </View>
+            </View>
+          )}
         </View>
         {isPrivate ? (
           <View style={{ alignItems: 'center', paddingVertical: 16, paddingHorizontal: 12, borderRadius: 14, backgroundColor: C.violetFill07, borderWidth: 1, borderColor: C.lineMid }}>
             <Lock size={20} color={C.faint2} strokeWidth={2} />
             <Text style={{ fontFamily: F.semibold, fontSize: 13.5, color: C.dim, marginTop: 8 }}>This account is private</Text>
-            <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 4, textAlign: 'center', lineHeight: 18 }}>Add them as a friend to see their dream, streak, and goals.</Text>
+            <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 4, textAlign: 'center', lineHeight: 18 }}>Add them as a friend to see their dream, streak, and progress.</Text>
           </View>
         ) : (
           <>
-            {card.current_goal ? <CardRow label="WORKING ON" value={card.current_goal} color={C.amber} /> : null}
+            {/* Goal title intentionally NOT shown — a viewer sees only streak +
+                % to dream (above), the dream itself, and bio. No goal specifics. */}
             {card.dream ? <CardRow label="DREAM" value={card.dream} color={C.violet} /> : null}
             {card.bio ? <CardRow label="BIO" value={card.bio} color={C.dim} /> : null}
           </>

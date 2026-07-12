@@ -2,19 +2,24 @@
 //
 // The app's private source of truth is the user_state blob (cloudSync.js). This
 // service maintains a PUBLIC projection in the `profiles` table (identity + a few
-// display fields: dream, streak, current goal) that friends / public viewers can
-// read under RLS, and the friendship graph.
+// display fields: dream, streak, dream-progress %) that friends / public viewers
+// can read under RLS, and the friendship graph. Goal titles/specifics are NOT
+// published — only the aggregate dream-progress percentage.
 import { getSupabaseClient } from './supabaseAuth'
 
-// Derive the headline goal to show on a profile card.
-function currentGoalOf(profile) {
+// Overall progress toward their dream — the average of their goals' progress.
+// This is the ONLY goal-derived number we publish: a viewer sees a percentage and
+// the dream itself, never the goal titles or any goal specifics. Mirrors the local
+// computation shown on the user's own feed posts (Social.js myDreamPct).
+function dreamProgressOf(profile) {
   const goals = profile?.goals || []
-  if (!goals.length) return null
-  const primary = goals.find((g) => g.primary_goal) || goals[0]
-  return primary?.title || null
+  if (!goals.length) return 0
+  return Math.round(goals.reduce((s, g) => s + (g.progress || 0), 0) / goals.length)
 }
 
-// Build the public projection row from the local profile.
+// Build the public projection row from the local profile. Deliberately excludes
+// goal titles and all goal specifics — the public surface is identity + streak +
+// dream + dream-progress %, nothing about what they're actually working on.
 export function projectionFromProfile(profile) {
   return {
     id: profile.userId,
@@ -25,7 +30,7 @@ export function projectionFromProfile(profile) {
     city: profile.location || null,
     visibility: profile.visibility || 'private',
     streak: profile.streak || 0,
-    current_goal: currentGoalOf(profile),
+    dream_progress: dreamProgressOf(profile),
     dream: profile.dreamDescription || null,
   }
 }
