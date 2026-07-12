@@ -700,6 +700,7 @@ export default function App() {
           onComplete={handleOnboardingComplete}
           onClaimAccount={handleClaimAccount}
           hasAccount={!!appState.profile?.userId}
+          onBack={() => setScreen('welcome')}
         />
       )}
       {screen === 'dream' && p && <DreamReveal profile={p} onContinue={handleDreamContinue} />}

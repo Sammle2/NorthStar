@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Eye, EyeOff, Send } from 'lucide-react-native'
+import { ArrowLeft, Eye, EyeOff, Send } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import GlowProgress from '../components/GlowProgress'
@@ -42,7 +42,7 @@ const nid = () => `m${Date.now()}_${idc++}`
 // Screen 2 — the Coach's first conversation: intake form (incl. picking a
 // username + email for new accounts) → 8-question dream survey → free-text
 // add-ons → primary goal (validated) → tone → generate.
-export default function Onboarding({ onComplete, onClaimAccount, hasAccount }) {
+export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onBack }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [step, setStep] = useState('intake') // intake | survey | extra | goal | tone | generating
@@ -254,6 +254,14 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount }) {
             borderBottomColor: 'rgba(167,139,250,0.1)',
           }}
         >
+          {/* Back to the welcome screen — for anyone who tapped "Begin" but
+              already has an account (the welcome screen has the Sign in link).
+              Only on the first step, before any intake has been entered. */}
+          {step === 'intake' && onBack && (
+            <Pressable onPress={onBack} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back to welcome">
+              <ArrowLeft size={22} color={C.dim} strokeWidth={2.2} />
+            </Pressable>
+          )}
           <CoachAvatar size={42} />
           <View>
             <Text style={{ fontFamily: F.display, fontSize: 13.5, color: C.ink, letterSpacing: 1.4 }}>NOVA</Text>
