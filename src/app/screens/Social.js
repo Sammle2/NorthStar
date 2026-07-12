@@ -4,6 +4,7 @@ import { Ban, Flag, Flame, Heart, MessageCircle, MoreHorizontal, Send, TrendingU
 import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
 import UserProfileModal from '../components/UserProfileModal'
+import { CirclesPanel, CircleDetail } from './Circles'
 import { currentStreak } from '../store'
 import { getFriendships, getProfile, saveProfileNow } from '../../services/socialService'
 import { getFriendsFeed, getPublicFeed, createPost, toggleLike } from '../../services/feedService'
@@ -37,6 +38,10 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
   const [modNote, setModNote] = useState(null)
   // The author whose profile popup is open (tap a name/avatar in the feed).
   const [viewing, setViewing] = useState(null)
+  // The circle whose stats board is open (from the Circles segment).
+  const [openCircle, setOpenCircle] = useState(null)
+  // Bumped when a circle changes (e.g. you leave one) to remount CirclesPanel.
+  const [circlesEpoch, setCirclesEpoch] = useState(0)
 
   // My streak + overall progress toward the dream (avg of goal progress) — shown
   // under my own posts. Friends' posts show their streak from the public projection.
@@ -62,12 +67,9 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
         .map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id)),
     )]
     setFriendCount(friendIds.length)
-    let rows
-    if (which === 'friends') {
-      rows = await getFriendsFeed(friendIds, myId)
-    } else {
-      rows = await getPublicFeed(myId)
-    }
+    // The Circles segment renders its own data (CirclesPanel) — no posts to fetch.
+    if (which === 'circles') { setPosts([]); setLoading(false); return }
+    const rows = which === 'friends' ? await getFriendsFeed(friendIds, myId) : await getPublicFeed(myId)
     setPosts(rows)
     setLoading(false)
   }
@@ -146,7 +148,8 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
 
         <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', paddingTop: 8 }}>
           <View style={{ flexDirection: 'row', backgroundColor: C.lineSoft, borderRadius: 999, padding: 3, borderWidth: 1, borderColor: C.lineMid }}>
-            <Seg label="My Friends" active={feed === 'friends'} onPress={() => setFeed('friends')} />
+            <Seg label="Friends" active={feed === 'friends'} onPress={() => setFeed('friends')} />
+            <Seg label="Circles" active={feed === 'circles'} onPress={() => setFeed('circles')} />
             <Seg label="Public" active={feed === 'public'} onPress={() => setFeed('public')} />
           </View>
         </View>
@@ -169,6 +172,11 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
           </Pressable>
         )}
 
+        {/* Circles segment shows the user's circles; otherwise the composer + feed. */}
+        {feed === 'circles' ? (
+          <CirclesPanel key={circlesEpoch} profile={profile} onOpenCircle={setOpenCircle} />
+        ) : (
+        <>
         {/* Composer */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
           <Avatar url={profile.avatarUrl} name={profile.name} username={profile.username} size={40} />
@@ -265,6 +273,8 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
             </View>
           ))
         )}
+        </>
+        )}
       </ScrollView>
 
       {/* Report / block action sheet */}
@@ -305,6 +315,16 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
 
       {/* Tap a name/avatar in the feed → their profile (streak + % to dream) */}
       {viewing && <UserProfileModal card={viewing} onClose={() => setViewing(null)} />}
+
+      {/* A circle's stats board (opened from the Circles segment). onClose(true)
+          means something changed (e.g. you left) → remount the panel to refresh. */}
+      {openCircle && (
+        <CircleDetail
+          profile={profile}
+          circle={openCircle}
+          onClose={(changed) => { setOpenCircle(null); if (changed) setCirclesEpoch((n) => n + 1) }}
+        />
+      )}
     </View>
   )
 }
