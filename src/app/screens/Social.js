@@ -458,7 +458,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 140 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               {/* Author + current audience */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <Avatar url={profile.avatarUrl} name={profile.name} username={profile.username} size={44} />
