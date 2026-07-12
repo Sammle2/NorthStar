@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Mail, Eye, EyeOff, LogIn } from 'lucide-react-native'
+import { ArrowLeft, Mail, Eye, EyeOff, LogIn } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { signUpWithEmail } from '../../services/supabaseAuth'
 import { isUsernameAvailable } from '../../services/socialService'
@@ -104,7 +104,11 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 60, paddingBottom: 60, maxWidth: 600, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
-          {/* Header */}
+          {/* Header — back to sign in for anyone who already has an account */}
+          <Pressable onPress={onSwitchToSignIn} disabled={loading} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 18, alignSelf: 'flex-start' }}>
+            <ArrowLeft size={18} color={C.dim} strokeWidth={2.2} />
+            <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.dim }}>Have an account? <Text style={{ color: C.amber }}>Sign in instead</Text></Text>
+          </Pressable>
           <Text style={{ fontFamily: F.display, fontSize: 28, color: C.ink, letterSpacing: 1.2, marginBottom: 8 }}>CREATE ACCOUNT</Text>
           <Text style={{ fontFamily: F.body, fontSize: 14, color: C.dim, marginBottom: 32, lineHeight: 21 }}>
             Start your journey to your dream life.
