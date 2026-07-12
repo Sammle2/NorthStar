@@ -142,7 +142,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
       <View style={{ paddingHorizontal: 24, paddingTop: 56, paddingBottom: 6 }}>
         <Text style={{ fontFamily: F.display, fontSize: 11.5, color: C.faint, letterSpacing: 3 }}>YOUR PATH TO</Text>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-          <Text style={{ flex: 1, fontFamily: F.display, fontSize: 26, color: C.ink, letterSpacing: 1.2, lineHeight: 34 }}>
+          <Text numberOfLines={2} style={{ flex: 1, fontFamily: F.display, fontSize: 20, color: C.ink, letterSpacing: 0.8, lineHeight: 26 }}>
             {goal ? goal.title.toUpperCase() : 'THE DREAM'}
           </Text>
           {goal && onRedoGoal && (
@@ -152,10 +152,19 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
             </Pressable>
           )}
         </View>
-        {goal && (
+        {goal && pct < 100 && (
           <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginTop: 4 }}>
             Tap a stepping stone as you complete it. Edit milestones with Redo.
           </Text>
+        )}
+        {/* Goal complete → Nova asks what's next (the input lives in Redo → Draft for me). */}
+        {goal && pct >= 100 && onRedoGoal && (
+          <Pressable onPress={() => onRedoGoal(goal)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)' }}>
+            <Text style={{ flex: 1, fontFamily: F.body, fontSize: 12.5, color: C.amber, lineHeight: 18 }}>
+              🎉 You’ve reached this goal! Tell Nova your next priority and it’ll draft what’s next.
+            </Text>
+            <Text style={{ fontFamily: F.bold, fontSize: 12, color: C.amberInk, backgroundColor: C.amber, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, overflow: 'hidden' }}>Redo</Text>
+          </Pressable>
         )}
       </View>
 

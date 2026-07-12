@@ -279,13 +279,13 @@ const GOAL_CATEGORIES = ['career', 'health', 'wealth', 'relationships', 'creativ
 // words. Returns one goal with an actionable title, a category, three timed
 // milestones (3/6/12 months) each with three concrete stepping stones, and a few
 // daily actions. The shape mirrors what aiEngine.normalizeAiGoal expects.
-export async function generateRoadmap({ name, rawGoal, extra = '', tone = 'default' }) {
+export async function generateRoadmap({ name, rawGoal, extra = '', tone = 'default', context = '' }) {
   const firstName = (name || '').split(' ')[0] || 'they'
   const dream = [rawGoal, extra].filter((s) => s && s.trim()).join(' — ')
 
   const prompt = `You are ${firstName}'s personal life coach. Turn their goal into a concrete, achievable roadmap.
 
-Their goal, in their own words: "${dream || rawGoal}"
+Their goal, in their own words: "${dream || rawGoal}"${context && context.trim() ? `\nIMPORTANT context from them — use it to make the roadmap relevant and to correct any earlier misunderstanding, but do NOT copy it into the title: "${context.trim()}"` : ''}
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
 Build a roadmap with THREE milestones. Default horizons are 3 months, 6 months, and 12 months — but if THEIR goal states its own deadline ("in 6 months", "by June", "this year"), scale the three checkpoints to fit THAT deadline instead (e.g. "6 weeks" / "3 months" / "6 months") so the final milestone lands exactly when they said. Each milestone has exactly THREE stepping stones — the smaller actions that get them there.
@@ -303,7 +303,7 @@ SPECIFICITY TEST: if a milestone or stepping stone would fit a DIFFERENT goal wi
 
 Return ONLY this JSON, no prose, no code fences:
 {
-  "title": "<short actionable goal title, Title Case, no leading 'I want to'>",
+  "title": "<short, punchy goal title in Title Case — aim for 2–5 words, ~40 characters MAX, no leading 'I want to'>",
   "category": "<one of: ${GOAL_CATEGORIES.join(', ')}>",
   "milestones": [
     { "horizon": "<first checkpoint, e.g. 3 months>", "title": "<specific outcome>", "steps": [{ "label": "<2-3 words>", "detail": "<full verb-first action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] },

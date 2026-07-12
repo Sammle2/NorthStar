@@ -18,6 +18,9 @@ const ns = () => `s${Date.now()}_${sidc++}`
 
 export default function GoalEditor({ goal, onSave, onCancel, dream }) {
   const color = CATEGORY_COLORS[goal.category] || C.amber
+  // All milestones done → this goal is complete; the redraft box then invites a
+  // NEXT priority instead of a correction.
+  const isComplete = (goal.milestones || []).length > 0 && goal.milestones.every((m) => m.completed)
   const [title, setTitle] = useState(goal.title)
   const [milestones, setMilestones] = useState(goal.milestones.map((m) => ({ ...m, steps: (m.steps || []).map((s) => ({ ...s })) })))
   const initialUpTo = (() => {
@@ -39,13 +42,15 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
   const addStep = (mi) => setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: [...m.steps, { id: ns(), title: '', completed: false }] } : m)))
   const removeStep = (mi, si) => setMilestones((ms) => ms.map((m, i) => (i === mi ? { ...m, steps: m.steps.filter((_, j) => j !== si) } : m)))
   const [drafting, setDrafting] = useState(false)
+  const [context, setContext] = useState('') // context the user gives Nova to redraft relevantly
   // "Draft for me" — Nova builds milestones specific to THIS goal title (with
-  // timeline-coherent checkpoints); the local template is only the offline fallback.
+  // timeline-coherent checkpoints), steered by any context the user provides; the
+  // local template is only the offline fallback.
   const regenerate = async () => {
     if (drafting) return
     setDrafting(true)
     try {
-      const ai = await generateRoadmap({ name: '', rawGoal: title })
+      const ai = await generateRoadmap({ name: '', rawGoal: title, context })
       const draft = normalizeAiGoal(ai, title, '', goal.id)
       setMilestones(draft.milestones.map((m) => ({ ...m, steps: m.steps.map((s) => ({ ...s })) })))
     } catch (e) {
@@ -117,6 +122,28 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
           <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginBottom: 12 }}>
             Don’t know your milestones? Tap “Draft for me” and tweak from there.
           </Text>
+
+          {/* Context for Nova — steer the redraft (fix a misunderstanding, note
+              what's already done) or, when this goal is complete, name what's next. */}
+          <View style={{ borderRadius: 14, borderWidth: 1, borderColor: isComplete ? 'rgba(245,158,11,0.35)' : C.lineMid, backgroundColor: isComplete ? 'rgba(245,158,11,0.06)' : 'rgba(167,139,250,0.06)', padding: 14, marginBottom: 16 }}>
+            <Text style={{ fontFamily: F.display, fontSize: 10.5, color: isComplete ? C.amber : C.violet, letterSpacing: 1.5, marginBottom: 6 }}>
+              {isComplete ? '🎉 GOAL COMPLETE — WHAT’S NEXT?' : 'TELL NOVA MORE (OPTIONAL)'}
+            </Text>
+            <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, lineHeight: 17, marginBottom: 10 }}>
+              {isComplete
+                ? 'You’ve reached this goal. Rename it above to your next priority and tell Nova what matters now — it’ll draft a fresh roadmap from your dream and what you share.'
+                : 'Give Nova context so the redraft actually fits your life — what’s changed, what you’ve already done, or where the last plan got it wrong.'}
+            </Text>
+            <TextInput
+              value={context}
+              onChangeText={setContext}
+              placeholder={isComplete ? 'e.g. Now I want to grow my team to 5 and raise a seed round' : 'e.g. I already have a design job — focus this on going senior, not breaking in'}
+              placeholderTextColor={C.faint2}
+              autoComplete="off"
+              multiline
+              style={[inputStyle, { minHeight: 68, textAlignVertical: 'top', paddingTop: 12, fontSize: 13.5 }]}
+            />
+          </View>
 
           {milestones.map((m, mi) => (
             <View key={m.id} style={{ borderRadius: 16, borderWidth: 1, borderColor: color + '33', backgroundColor: 'rgba(13,13,27,0.6)', padding: 14, marginBottom: 14 }}>
