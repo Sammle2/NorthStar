@@ -1,11 +1,11 @@
 import React, { useEffect, useRef } from 'react'
 import { Animated, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Zap } from 'lucide-react-native'
 import { C } from '../tokens'
+import { FacetedStar } from './StarMark'
 
-// The Coach: a violet gradient orb with a lightning bolt and a pulsing glow,
-// plus a green "online" dot. Matches the Figma header avatar exactly.
+// The Coach: a deep-space orb holding the faceted NorthStar (logo v23) with a
+// pulsing glow, plus a green "online" dot. The star IS Nova's mark.
 export default function CoachAvatar({ size = 44, showStatus = true }) {
   const glow = useRef(new Animated.Value(0)).current
   useEffect(() => {
@@ -30,12 +30,12 @@ export default function CoachAvatar({ size = 44, showStatus = true }) {
       }}
     >
       <LinearGradient
-        colors={[C.violetDeep, C.violet]}
+        colors={['#241645', '#170f2e']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={{ width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(167,139,250,0.35)' }}
       >
-        <Zap size={size * 0.46} color="#fff" strokeWidth={2.4} fill="#fff" />
+        <FacetedStar size={size * 0.62} />
       </LinearGradient>
       {showStatus && (
         <View
