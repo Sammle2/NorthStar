@@ -356,13 +356,14 @@ export async function generatePlan({ profile, kind = 'custom', brief = '' }) {
   const prompt = `You are ${firstName}'s personal coach, Nova. Build them a concrete, personal ${PLAN_KIND_NOUN[kind] || 'plan'} they can actually follow and check off day to day.
 
 What they asked for: "${brief || 'a plan to help with their goal'}"
-${dream ? `Their bigger dream: "${dream}"` : ''}
+${dream ? `The direction they're working toward (their dream — this is aspirational and may NOT be true yet): "${dream}"` : ''}
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
-${memoryFacts ? `What you already know about them:\n${memoryFacts}` : ''}
+${memoryFacts ? `What you actually know about their current situation:\n${memoryFacts}` : ''}
 
 ${KIND_GUIDE[kind] || KIND_GUIDE.custom}
 
 RULES:
+- GROUND IT IN THEIR REAL LIFE, NOT THEIR ASPIRATIONS. The dream above is the DIRECTION they're heading — do NOT assume it's already true. Never write an item that depends on something they don't have yet (a partner, kids, a business, a certain income / body / job / audience). If the goal is a future state, target the concrete STEPS toward it from where they are TODAY — not living as if they've already arrived (e.g. for someone who wants a family but doesn't have one, plan the steps to get ready for it, never "spend time with your kids"). Use only what you actually know about their present situation from the request + what's above; if a fact isn't established, don't invent it.
 - Make it specific to what THEY asked — honor their numbers, equipment, level, schedule, and constraints. If they gave little detail, make sensible, beginner-friendly assumptions rather than staying vague.
 - 3 to 6 sections, each with 3 to 8 items. Every item is ONE concrete, checkable thing.
 - "text" is the short line shown as a checklist item; "detail" (optional) is a one-line cue, portion, target, or how-to. Plain text only — no markdown, no numbering, no leading dashes.
@@ -633,7 +634,11 @@ ${firstName}'s latest message: "${userText}"
 
 Decide if they are explicitly asking to change a goal — add a new one, rename/refocus an existing one, or drop one. Only act when the intent is unambiguous; otherwise just talk. When you do act, your reply should confirm the change warmly.
 
-Also decide if they are explicitly asking you to BUILD or REDO a structured, multi-part plan — a workout program, a diet / meal plan, a study schedule, a habit routine, or similar. Only when the intent is unambiguous (a passing mention of exercise or food is NOT a request). If so, set planRequest.wants=true, pick the closest kind, and write a one-line brief capturing exactly what to build — include every specific they gave (level, days per week, equipment, calorie/macro target, deadline, constraints, preferences). If they are clearly asking to redo or replace one of the saved plans listed above, put its id in replacePlanId. When wants=true, DO NOT write the plan out in your reply — the plan is generated separately and saved to their Plans; just warmly confirm you're building it now. Otherwise leave planRequest.wants=false.
+Also decide if they are explicitly asking you to BUILD or REDO a structured, multi-part plan — a workout program, a diet / meal plan, a study schedule, a habit routine, or similar. Only when the intent is unambiguous (a passing mention of exercise or food is NOT a request).
+
+Before you commit to building, make sure the plan would fit ${firstName}'s ACTUAL current life — not their aspirations. Their dream and goals above are where they're HEADED; those things may not be true YET. If the request hinges on details you don't actually know — their real starting point / current level, what they have available (equipment, time, budget, schedule), or whether a situation is REAL yet or still something they're working toward (e.g. do they ALREADY have the kids / partner / business / job / audience, or is that the dream?) — then ASK ONE short, friendly clarifying question INSTEAD of building: leave planRequest.wants=false and put the question in your reply. NEVER build a plan around something they don't have yet — you can't tell someone to "spend more time with their kids" if they don't have kids.
+
+Once the recent conversation gives you enough to ground the plan in their REAL situation, set planRequest.wants=true, pick the closest kind, and write a one-line brief capturing exactly what to build for their reality — include every specific they gave or just clarified (their real level, equipment, days per week, calorie/macro target, deadline, constraints, and any facts you confirmed, e.g. "single, no kids yet — preparing for the family he wants"). If they are clearly asking to redo or replace one of the saved plans listed above, put its id in replacePlanId. When wants=true, DO NOT write the plan out in your reply — the plan is generated separately and saved to their Plans; just warmly confirm you're building it now. Otherwise leave planRequest.wants=false.
 
 Return ONLY this JSON, no prose, no code fences:
 {
