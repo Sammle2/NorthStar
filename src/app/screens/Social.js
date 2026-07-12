@@ -147,10 +147,10 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
         <HeaderAction icon={MessageCircle} label="Messages" onPress={onOpenDMs} />
 
         <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', paddingTop: 8 }}>
-          <View style={{ flexDirection: 'row', backgroundColor: C.lineSoft, borderRadius: 999, padding: 3, borderWidth: 1, borderColor: C.lineMid }}>
+          <View style={{ flexDirection: 'row', gap: 6, backgroundColor: C.lineSoft, borderRadius: 999, padding: 4, borderWidth: 1, borderColor: C.lineMid }}>
             <Seg label="Friends" active={feed === 'friends'} onPress={() => setFeed('friends')} />
-            <Seg label="Circles" active={feed === 'circles'} onPress={() => setFeed('circles')} />
             <Seg label="Public" active={feed === 'public'} onPress={() => setFeed('public')} />
+            <Seg label="Circles" active={feed === 'circles'} onPress={() => setFeed('circles')} />
           </View>
         </View>
 
@@ -331,7 +331,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, reloadKey
 
 function Seg({ label, active, onPress }) {
   return (
-    <Pressable onPress={onPress} style={{ paddingHorizontal: 18, paddingVertical: 8, borderRadius: 999, backgroundColor: active ? C.amber : 'transparent' }}>
+    <Pressable onPress={onPress} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: active ? C.amber : 'transparent' }}>
       <Text style={{ fontFamily: F.semibold, fontSize: 13, color: active ? C.amberInk : C.dim }}>{label}</Text>
     </Pressable>
   )
