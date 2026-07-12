@@ -4,10 +4,14 @@ import { Home, Map, MessageCircle, Target, Users } from 'lucide-react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { C, F } from '../tokens'
 
+// Order is Sprints · Roadmap · Today · Friends · Nova (Today centered). The app
+// still OPENS on Today — the default tab lives in App's `tab` state, not here;
+// this array only controls the left-to-right layout (the indicator uses
+// findIndex, so it stays correct regardless of order).
 const TABS = [
-  { id: 'dashboard', icon: Home, label: 'Today' },
-  { id: 'roadmap', icon: Map, label: 'Roadmap' },
   { id: 'sprints', icon: Target, label: 'Sprints' },
+  { id: 'roadmap', icon: Map, label: 'Roadmap' },
+  { id: 'dashboard', icon: Home, label: 'Today' },
   { id: 'community', icon: Users, label: 'Friends' },
   { id: 'coach', icon: MessageCircle, label: 'Nova' },
 ]
