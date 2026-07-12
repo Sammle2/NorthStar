@@ -484,6 +484,43 @@ Return ONLY JSON:
   }
 }
 
+// Judge whether a SPRINT title is a real, attainable short-term task — specific
+// enough for Nova to break into a few scheduled steps. Like judgeGoal but framed
+// for tasks/mini-goals with a deadline (not life goals), so a concrete task like
+// "finish the lab report" passes while gibberish/vague/impossible ones get a warm
+// re-ask. Returns { ok, message }; fails OPEN so an API hiccup never blocks a sprint.
+export async function judgeSprint({ rawTitle, horizonDays = null, name = '', tone = 'default', attempt = 1, rejected = [] }) {
+  const firstName = (name || '').split(' ')[0] || 'there'
+  // Attainability is deadline-relative, so tell the judge the actual window.
+  const windowClause = horizonDays == null ? ''
+    : horizonDays <= 0 ? ' They want to finish it by the END OF TODAY — only the remaining hours today.'
+    : ` They want to finish it within the next ${horizonDays} day${horizonDays === 1 ? '' : 's'}.`
+  const retryContext = rejected.length
+    ? `\nThis is attempt #${attempt}. Their earlier tries were ALREADY REJECTED as not workable: ${rejected.map((r) => `"${r}"`).join(', ')}. Do NOT lower the bar — if this is still gibberish, a joke, a trivial variation, or too vague to plan steps around, reject it again.`
+    : ''
+  const prompt = `You are Nova, ${firstName}'s coach. They're creating a SHORT-TERM SPRINT — a concrete task or mini-goal to accomplish by a deadline — and named it: "${rawTitle}".${windowClause}${retryContext}
+
+Decide if this is a REAL, workable sprint they can plausibly finish in that window — specific and attainable enough to break into a few scheduled steps.
+- NOT workable: gibberish/keysmash, jokes, empty or throwaway non-answers, impossible/fantasy tasks (be immortal, get rich overnight, never sleep), tasks that cannot realistically fit the stated deadline (e.g. "run a marathon" or "write a novel" by the end of today), or answers too vague to plan steps around ("be better", "do stuff", "work", "life", "everything").
+- Workable: anything concrete enough to plan steps for AND plausibly fit the window, even if ambitious ("ace my chemistry midterm", "ship the landing page", "run a 5k", "read 3 books this month", "save $500").
+- When genuinely unsure whether it's specific enough OR whether it fits the deadline, REJECT and ask for a more specific / better-scoped version — never accept just to move on.
+
+Coaching tone to use if you must ask again: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
+
+Return ONLY JSON:
+- If workable: {"ok": true}
+- If not: {"ok": false, "message": "<1-2 sentences, in the tone above, that name what they wrote and ask for a more specific / better-scoped version — give a concrete example of a real sprint that fits, or suggest a longer deadline if the task is too big for the window>"}`
+
+  try {
+    const res = await callClaude(prompt, 300)
+    const parsed = extractJson(res)
+    return { ok: parsed.ok !== false, message: parsed.message || '' }
+  } catch (e) {
+    console.warn('[judgeSprint] failed, accepting sprint:', e?.message)
+    return { ok: true, message: '' }
+  }
+}
+
 // Distill durable, user-shared facts from the recent conversation into Nova's
 // long-term memory (profile.coachMemory). Returns the UPDATED fact list (already
 // merged with the existing one by the model), or null when the call failed /
@@ -684,6 +721,7 @@ export default {
   generateSprintPlan,
   generatePlan,
   judgeGoal,
+  judgeSprint,
   coachRespond,
   distillCoachMemory,
   applyGoalAction,

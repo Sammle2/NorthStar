@@ -4,7 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { CalendarClock, Check, Plus, Sparkles, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
-import { generateSprintPlan } from '../../services/aiService'
+import { generateSprintPlan, judgeSprint } from '../../services/aiService'
+import { validateGoal } from '../aiEngine'
 
 // Sprints — capture a short-term task, pick when it's due, and Nova breaks it
 // into a scheduled plan: a few steps across the remaining hours if it's due
@@ -70,6 +71,11 @@ function schedLabel(iso, completed, hourly) {
 
 const isDone = (s) => (s.steps?.length ? s.steps.every((st) => st.completed) : !!s.completed)
 
+// Shown when the local gate rejects a sprint (gibberish/impossible), or as a
+// fallback if the AI judge rejects without a message. The AI usually supplies a
+// tailored, tone-matched line instead.
+const SPRINT_CLARIFY = 'Give me a real task I can actually plan — something specific you want to get done. Try naming the outcome, like “Finish my résumé” or “Study for Friday’s exam.”'
+
 export default function Sprints({ profile, onUpdate }) {
   const sprints = profile.sprints || []
   const goals = profile.goals || []
@@ -77,10 +83,12 @@ export default function Sprints({ profile, onUpdate }) {
   const [due, setDue] = useState('week')
   const [customDays, setCustomDays] = useState('')
   const [linkedGoalId, setLinkedGoalId] = useState(null)
-  const [adding, setAdding] = useState(false)
+  const [phase, setPhase] = useState(null) // null | 'judging' | 'planning' — drives the busy label
   const [error, setError] = useState('')
+  const [gate, setGate] = useState(null) // { message } — the "make it more specific" popup
+  const [rejected, setRejected] = useState([]) // titles the judge already turned down (attempt-aware)
 
-  const ready = !!title.trim() && !adding
+  const ready = !!title.trim() && !phase
 
   const horizonDays = () => {
     const opt = DUE_OPTIONS.find((o) => o.id === due)
@@ -95,25 +103,56 @@ export default function Sprints({ profile, onUpdate }) {
   }
 
   const reset = () => {
-    setTitle(''); setDue('week'); setCustomDays(''); setLinkedGoalId(null); setError('')
+    setTitle(''); setDue('week'); setCustomDays(''); setLinkedGoalId(null); setError(''); setRejected([])
   }
 
   const add = async () => {
     if (!ready) return
-    setAdding(true); setError('')
+    const raw = title.trim()
+    setError('') // clear any prior build-failure line on every attempt (incl. the gate paths)
     const H = horizonDays()
+
+    // Gate: make sure the sprint is a real, attainable task before Nova plans it.
+    // (1) Fast local check — catches gibberish/impossible even when the AI is down.
+    const local = validateGoal(raw)
+    if (!local.ok) {
+      setRejected((r) => [...r, raw])
+      setGate({ message: SPRINT_CLARIFY })
+      return
+    }
+
+    setPhase('judging')
+    // (2) AI judge — attempt-aware AND horizon-aware; holds the same bar across
+    // retries (mirrors the onboarding goal gate). Fails open, so an API hiccup
+    // never blocks a sprint.
+    const verdict = await judgeSprint({
+      rawTitle: raw,
+      horizonDays: H,
+      name: profile.name,
+      tone: profile.coachTone || 'default',
+      attempt: rejected.length + 1,
+      rejected,
+    })
+    if (!verdict.ok) {
+      setRejected((r) => [...r, raw])
+      setGate({ message: verdict.message || SPRINT_CLARIFY })
+      setPhase(null)
+      return
+    }
+
+    setPhase('planning')
     try {
       let titles
       try {
-        titles = await generateSprintPlan({ title: title.trim(), horizonDays: H, count: stepCount(H), tone: profile.coachTone || 'default' })
+        titles = await generateSprintPlan({ title: raw, horizonDays: H, count: stepCount(H), tone: profile.coachTone || 'default' })
       } catch (e) {
-        titles = [title.trim()] // fallback: the task itself as a single scheduled step
+        titles = [raw] // fallback: the task itself as a single scheduled step
       }
       const steps = buildSchedule(titles, H)
       const g = goals.find((x) => x.id === linkedGoalId)
       const sprint = {
         id: newId(),
-        title: title.trim(),
+        title: raw,
         due: dueLabelText(),
         horizonDays: H,
         dueDate: steps[steps.length - 1]?.targetDate,
@@ -130,7 +169,7 @@ export default function Sprints({ profile, onUpdate }) {
     } catch (e) {
       setError(e?.message || 'Could not build the plan. Try again.')
     } finally {
-      setAdding(false)
+      setPhase(null)
     }
   }
 
@@ -165,7 +204,7 @@ export default function Sprints({ profile, onUpdate }) {
           <Text style={{ fontFamily: F.display, fontSize: 10.5, color: C.violet, letterSpacing: 1.6, marginBottom: 12 }}>NEW SPRINT</Text>
           <TextInput
             value={title}
-            onChangeText={setTitle}
+            onChangeText={(v) => { setTitle(v); if (rejected.length) setRejected([]) }}
             placeholder="e.g. Ace my chemistry midterm"
             placeholderTextColor={C.faint2}
             autoComplete="off"
@@ -222,10 +261,12 @@ export default function Sprints({ profile, onUpdate }) {
               </LinearGradient>
             ) : (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: C.line }}>
-                {adding ? (
+                {phase ? (
                   <>
                     <ActivityIndicator size="small" color={C.violet} />
-                    <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.dim }}>Nova is planning your steps…</Text>
+                    <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.dim }}>
+                      {phase === 'judging' ? 'Nova is checking your sprint…' : 'Nova is planning your steps…'}
+                    </Text>
                   </>
                 ) : (
                   <>
@@ -257,6 +298,25 @@ export default function Sprints({ profile, onUpdate }) {
           </View>
         )}
       </ScrollView>
+
+      {/* Goal-quality gate — Nova asks for a more specific / attainable sprint.
+          The typed title stays in the field so they can refine it and retry. */}
+      {gate && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(7,7,15,0.86)', alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 300 }}>
+          <View style={{ width: '100%', maxWidth: 400, borderRadius: 22, padding: 22, backgroundColor: C.card, borderWidth: 1, borderColor: C.lineMid }}>
+            <View style={{ width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, alignSelf: 'center' }}>
+              <Sparkles size={22} color={C.violet} strokeWidth={2.2} />
+            </View>
+            <Text style={{ fontFamily: F.display, fontSize: 17, color: C.ink, letterSpacing: 0.4, textAlign: 'center', marginTop: 14 }}>Let’s sharpen this sprint</Text>
+            <Text style={{ fontFamily: F.body, fontSize: 14, color: C.dim, lineHeight: 21, textAlign: 'center', marginTop: 10 }}>{gate.message}</Text>
+            <Pressable onPress={() => setGate(null)} style={{ marginTop: 20 }}>
+              <LinearGradient colors={[C.amber, C.amberDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 12, paddingVertical: 13, alignItems: 'center' }}>
+                <Text style={{ fontFamily: F.bold, fontSize: 14, color: C.amberInk }}>Edit my sprint</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </KeyboardAvoidingView>
   )
 }
