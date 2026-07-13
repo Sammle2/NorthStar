@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { ArrowLeft, History, Send, Settings, X } from 'lucide-react-native'
+import { ArrowLeft, History, Send, Settings, Trash2, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import { MessageBubble, PlanCard, TypingDots } from '../components/ChatBits'
@@ -31,9 +31,11 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
   const [showToneMenu, setShowToneMenu] = useState(false)
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
-  // Past-chat history: the archive list overlay, and the one session being read.
+  // Past-chat history: the archive list overlay, the one session being read, and
+  // which delete is armed ('ALL' or a session id) for the two-tap confirm.
   const [showHistory, setShowHistory] = useState(false)
   const [viewingSession, setViewingSession] = useState(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const profileRef = useRef(profile)
   profileRef.current = profile
 
@@ -62,20 +64,53 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
   // long-term memory and the chat opens fresh — Nova still remembers what
   // mattered, without one endless thread forever.
   const SESSION_RESET_HOURS = 1
-  useEffect(() => {
+  // The watchdog waits until the user has been hands-off this long before it
+  // will swap the visible thread — a reader mid-scroll never gets yanked away.
+  const ACTIVITY_GRACE_MS = 2 * 60 * 1000
+  // Refs so the live idle watchdog (created once, on mount) always sees the
+  // CURRENT typing/draft/overlay/presence state instead of a stale snapshot.
+  const isTypingRef = useRef(isTyping)
+  isTypingRef.current = isTyping
+  const inputRef = useRef(input)
+  inputRef.current = input
+  const historyOpenRef = useRef(showHistory)
+  historyOpenRef.current = showHistory
+  // Any touch, scroll, or keystroke on this screen stamps presence. Starts at
+  // mount time — opening the tab IS an interaction.
+  const lastActivityRef = useRef(Date.now())
+  const stampActivity = () => { lastActivityRef.current = Date.now() }
+
+  // End a stale session: open a fresh page, archive the ended thread so its full
+  // transcript stays in History, and distill it into long-term memory. Reads
+  // everything from refs, so it's safe to call from the on-open check AND the
+  // live idle watchdog below. It's a no-op unless the thread has truly gone idle
+  // past the window, so the once-a-minute calls just cost a couple comparisons.
+  const runSessionReset = (opts) => {
+    const fromWatchdog = !!(opts && opts.fromWatchdog)
     const prof = profileRef.current
     const saved = prof.coachHistory
     const lastAt = prof.coachLastChatAt
     if (!Array.isArray(saved) || saved.length < 2 || !lastAt) return
+    // Never yank the thread out from under an in-flight reply or an unsent draft.
+    if (isTypingRef.current || inputRef.current.trim()) return
+    // The LIVE watchdog additionally defers while the user is present: reading
+    // (any recent tap/scroll/keystroke) or browsing History. It re-checks every
+    // minute, so the reset lands as soon as they've truly stepped away. The
+    // on-open call skips these — a tab open is already a natural boundary.
+    if (fromWatchdog) {
+      if (historyOpenRef.current) return
+      if (Date.now() - lastActivityRef.current < ACTIVITY_GRACE_MS) return
+    }
     const idleMs = Date.now() - new Date(lastAt).getTime()
     if (!(idleMs > SESSION_RESET_HOURS * 3600 * 1000)) return
 
+    const fn = (prof.name || '').split(' ')[0]
     // Start the fresh session immediately (memory-aware welcome when Nova
     // actually remembers something).
     const hasMemory = (prof.coachMemory?.facts || []).length > 0
     const reintro = hasMemory
-      ? `Welcome back, ${firstName} — fresh page, same me. I remember where we left off. What's on your mind?`
-      : (COACH_MESSAGES[prof.coachTone]?.intro || COACH_MESSAGES.default.intro).replace('{name}', firstName)
+      ? `Welcome back, ${fn} — fresh page, same me. I remember where we left off. What's on your mind?`
+      : (COACH_MESSAGES[prof.coachTone]?.intro || COACH_MESSAGES.default.intro).replace('{name}', fn)
     const fresh = [{ id: '0', from: 'coach', text: reintro, time: nowTime() }]
     setMessages(fresh)
     // Archive the ENDED session so its full transcript stays viewable in History
@@ -114,6 +149,15 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
         console.warn('[Coach] end-of-session distill failed:', e?.message)
       }
     })()
+  }
+
+  // On open: a chat left idle past the window starts fresh right away.
+  useEffect(() => { runSessionReset() }, [])
+  // While Nova stays open: keep watching so the reset still fires ~on the hour
+  // even if the user never navigates away. Checks each minute; clears on unmount.
+  useEffect(() => {
+    const iv = setInterval(() => runSessionReset({ fromWatchdog: true }), 60 * 1000)
+    return () => clearInterval(iv)
   }, [])
 
   useEffect(() => {
@@ -281,10 +325,30 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
       return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
     } catch { return '' }
   }
+  // Deleting history — remove one archived session, or wipe them all. Functional
+  // updater so a concurrent write (reset, reply landing) is never clobbered. Note:
+  // this only deletes the transcript — facts already distilled into Nova's memory
+  // stay (erase those from Settings → Nova's Memory).
+  const deleteSession = (id) => {
+    onUpdate((p) => ({ ...p, coachArchive: (p.coachArchive || []).filter((s) => s.id !== id) }))
+    setConfirmDeleteId(null)
+    if (viewingSession?.id === id) setViewingSession(null)
+  }
+  const clearAllSessions = () => {
+    onUpdate((p) => ({ ...p, coachArchive: [] }))
+    setConfirmDeleteId(null)
+    setViewingSession(null)
+  }
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: C.bg }}>
-      <View style={{ flex: 1, maxWidth: 600, width: '100%', alignSelf: 'center' }}>
+      {/* onStartShouldSetResponderCapture observes every touch in the subtree
+          (returning false so it never claims one) — it just stamps presence
+          for the session-reset watchdog. */}
+      <View
+        style={{ flex: 1, maxWidth: 600, width: '100%', alignSelf: 'center' }}
+        onStartShouldSetResponderCapture={() => { stampActivity(); return false }}
+      >
         {/* Header */}
         <View
           style={{
@@ -314,7 +378,7 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {/* Past chats */}
             <Pressable
-              onPress={() => { setShowHistory(true); setViewingSession(null) }}
+              onPress={() => { setShowHistory(true); setViewingSession(null); setConfirmDeleteId(null) }}
               hitSlop={6}
               style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.lineStrong }}
             >
@@ -390,6 +454,8 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
           ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 16, gap: 16 }}
+          onScroll={stampActivity}
+          scrollEventThrottle={500}
         >
           {messages.map((m) =>
             m.card ? (
@@ -429,7 +495,7 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16 }}>
             <TextInput
               value={input}
-              onChangeText={setInput}
+              onChangeText={(t) => { stampActivity(); setInput(t) }}
               onSubmitEditing={() => send()}
               placeholder="Talk to Nova..."
               placeholderTextColor={C.faint2}
@@ -470,17 +536,35 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
         {showHistory && (
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: C.bg, zIndex: 100 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(167,139,250,0.1)' }}>
-              <Pressable onPress={() => (viewingSession ? setViewingSession(null) : setShowHistory(false))} hitSlop={10} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineMid }}>
+              <Pressable onPress={() => { setConfirmDeleteId(null); viewingSession ? setViewingSession(null) : setShowHistory(false) }} hitSlop={10} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineMid }}>
                 {viewingSession ? <ArrowLeft size={18} color={C.dim} strokeWidth={2.2} /> : <X size={18} color={C.dim} strokeWidth={2.2} />}
               </Pressable>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: F.display, fontSize: 14.5, color: C.ink, letterSpacing: 1.2 }}>{viewingSession ? 'PAST CHAT' : 'CHAT HISTORY'}</Text>
                 {viewingSession ? <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginTop: 2 }}>{sessionDateLabel(viewingSession.endedAt)}</Text> : null}
               </View>
+              {viewingSession ? (
+                <Pressable onPress={() => setConfirmDeleteId(viewingSession.id)} hitSlop={10} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)' }}>
+                  <Trash2 size={16} color={C.red} strokeWidth={2} />
+                </Pressable>
+              ) : null}
             </View>
 
             {viewingSession ? (
               <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, gap: 16 }}>
+                {confirmDeleteId === viewingSession.id ? (
+                  <View style={{ borderRadius: 14, padding: 16, backgroundColor: 'rgba(239,68,68,0.08)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' }}>
+                    <Text style={{ fontFamily: F.medium, fontSize: 13.5, color: C.ink2, textAlign: 'center' }}>Delete this chat for good?</Text>
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                      <Pressable onPress={() => setConfirmDeleteId(null)} style={{ flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.lineStrong }}>
+                        <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.dim }}>Keep it</Text>
+                      </Pressable>
+                      <Pressable onPress={() => deleteSession(viewingSession.id)} style={{ flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: C.red }}>
+                        <Text style={{ fontFamily: F.semibold, fontSize: 13, color: '#fff' }}>Delete</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
                 {(viewingSession.messages || []).map((m) =>
                   m.card
                     ? <PlanCard key={m.id} card={m.card} onOpen={() => onOpenPlans && onOpenPlans(m.card.planId)} />
@@ -495,19 +579,64 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
                     <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.faint, marginTop: 12, textAlign: 'center', lineHeight: 20 }}>No past chats yet. When a conversation wraps up, its full transcript is saved here so you can always look back.</Text>
                   </View>
                 ) : (
-                  archive.map((s) => {
-                    const users = (s.messages || []).filter((m) => m.from === 'user')
-                    const preview = users[0]?.text || (s.messages || []).find((m) => m.text)?.text || 'Conversation'
-                    return (
-                      <Pressable key={s.id} onPress={() => setViewingSession(s)} style={{ borderRadius: 14, padding: 15, marginBottom: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.violet }}>{sessionDateLabel(s.endedAt)}</Text>
-                          <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint }}>{users.length} message{users.length === 1 ? '' : 's'}</Text>
+                  <>
+                    {archive.map((s) => {
+                      const users = (s.messages || []).filter((m) => m.from === 'user')
+                      const preview = users[0]?.text || (s.messages || []).find((m) => m.text)?.text || 'Conversation'
+                      // Armed for delete → the card flips to an inline confirm (app-wide two-tap pattern).
+                      if (confirmDeleteId === s.id) {
+                        return (
+                          <View key={s.id} style={{ borderRadius: 14, padding: 16, marginBottom: 10, backgroundColor: 'rgba(239,68,68,0.08)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' }}>
+                            <Text style={{ fontFamily: F.medium, fontSize: 13.5, color: C.ink2, textAlign: 'center' }}>Delete this chat for good?</Text>
+                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                              <Pressable onPress={() => setConfirmDeleteId(null)} style={{ flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.lineStrong }}>
+                                <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.dim }}>Keep it</Text>
+                              </Pressable>
+                              <Pressable onPress={() => deleteSession(s.id)} style={{ flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: C.red }}>
+                                <Text style={{ fontFamily: F.semibold, fontSize: 13, color: '#fff' }}>Delete</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        )
+                      }
+                      return (
+                        <Pressable key={s.id} onPress={() => { setConfirmDeleteId(null); setViewingSession(s) }} style={{ borderRadius: 14, padding: 15, marginBottom: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.violet }}>{sessionDateLabel(s.endedAt)}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                              <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint }}>{users.length} message{users.length === 1 ? '' : 's'}</Text>
+                              <Pressable onPress={() => setConfirmDeleteId(s.id)} hitSlop={8} style={{ padding: 2 }}>
+                                <Trash2 size={14} color={C.faint} strokeWidth={2} />
+                              </Pressable>
+                            </View>
+                          </View>
+                          <Text numberOfLines={2} style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink2, lineHeight: 19 }}>{preview}</Text>
+                        </Pressable>
+                      )
+                    })}
+
+                    {/* Danger zone — wipe the whole history, same two-tap confirm */}
+                    <View style={{ marginTop: 20 }}>
+                      {confirmDeleteId === 'ALL' ? (
+                        <View style={{ borderRadius: 14, padding: 16, backgroundColor: 'rgba(239,68,68,0.08)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' }}>
+                          <Text style={{ fontFamily: F.medium, fontSize: 13.5, color: C.ink2, textAlign: 'center' }}>Delete all {archive.length} past chat{archive.length === 1 ? '' : 's'} for good?</Text>
+                          <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                            <Pressable onPress={() => setConfirmDeleteId(null)} style={{ flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.lineStrong }}>
+                              <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.dim }}>Keep them</Text>
+                            </Pressable>
+                            <Pressable onPress={clearAllSessions} style={{ flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: C.red }}>
+                              <Text style={{ fontFamily: F.semibold, fontSize: 13, color: '#fff' }}>Delete all</Text>
+                            </Pressable>
+                          </View>
                         </View>
-                        <Text numberOfLines={2} style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink2, lineHeight: 19 }}>{preview}</Text>
-                      </Pressable>
-                    )
-                  })
+                      ) : (
+                        <Pressable onPress={() => setConfirmDeleteId('ALL')} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)' }}>
+                          <Trash2 size={15} color={C.red} strokeWidth={2} />
+                          <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.red }}>Delete all history</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </>
                 )}
               </ScrollView>
             )}
