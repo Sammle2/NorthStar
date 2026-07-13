@@ -10,7 +10,7 @@ import { currentStreak } from '../store'
 import { getFriendships, getProfile, saveProfileNow } from '../../services/socialService'
 import { getFriendsFeed, getPublicFeed, createPost, toggleLike, updatePost, deletePost, uploadPostMedia } from '../../services/feedService'
 import { reportPost, blockUser } from '../../services/moderationService'
-import { moderateImage } from '../../services/aiService'
+import { screenMediaForUpload } from '../../services/mediaScreening'
 
 const MAX_VIDEO_SEC = 60 // posts can attach videos up to 1 minute
 
@@ -29,45 +29,6 @@ async function getVideoDurationSec(uri) {
       v.onloadedmetadata = () => finish(Number.isFinite(v.duration) ? v.duration : null)
       v.onerror = () => finish(null)
       v.src = uri
-    } catch { finish(null) }
-  })
-}
-
-// Build a SMALL base64 JPEG (no data: prefix) from a picked photo, or a frame
-// sampled from a video, so media can be screened before it's posted. Web only
-// (canvas) and kept tiny so it fits the AI proxy's input cap. Returns null if it
-// can't produce one (native / decode failure) — moderation then simply skips.
-async function makeModerationThumbnail(uri, type) {
-  if (Platform.OS !== 'web' || typeof document === 'undefined') return null
-  return new Promise((resolve) => {
-    let done = false
-    const finish = (v) => { if (!done) { done = true; clearTimeout(timer); resolve(v) } }
-    const timer = setTimeout(() => finish(null), 8000) // never hang a post on this
-    const draw = (el, w, h) => {
-      try {
-        const MAX = 256
-        const scale = Math.min(1, MAX / Math.max(w || MAX, h || MAX))
-        const cw = Math.max(1, Math.round((w || MAX) * scale))
-        const ch = Math.max(1, Math.round((h || MAX) * scale))
-        const canvas = document.createElement('canvas')
-        canvas.width = cw; canvas.height = ch
-        canvas.getContext('2d').drawImage(el, 0, 0, cw, ch)
-        finish((canvas.toDataURL('image/jpeg', 0.5).split(',')[1]) || null)
-      } catch { finish(null) }
-    }
-    try {
-      if (type === 'video') {
-        const v = document.createElement('video')
-        v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = uri
-        v.onloadeddata = () => { try { v.currentTime = Math.min(0.6, (v.duration || 2) / 3) } catch { draw(v, v.videoWidth, v.videoHeight) } }
-        v.onseeked = () => draw(v, v.videoWidth, v.videoHeight)
-        v.onerror = () => finish(null)
-      } else {
-        const img = new window.Image()
-        img.onload = () => draw(img, img.naturalWidth, img.naturalHeight)
-        img.onerror = () => finish(null)
-        img.src = uri
-      }
     } catch { finish(null) }
   })
 }
@@ -199,23 +160,20 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, onMessage
     if (!text && !media) return
     setPosting(true)
     const localMedia = media
-    // Screen media BEFORE uploading — a small local thumbnail (photo, or a frame
-    // sampled from a video) goes to the vision moderator. A clear violation blocks
-    // the post with a friendly reason; any error/uncertainty falls through, and
-    // report/block remains the reactive backstop.
+    // Screen media BEFORE uploading — the shared pipeline (thumbnail → vision
+    // moderator, FAIL CLOSED) used for every user image, incl. profile photos.
+    // A clear violation blocks the post with a friendly reason; anything we
+    // couldn't verify is held back rather than posted unscreened.
     if (localMedia) {
-      const thumb = await makeModerationThumbnail(localMedia.uri, localMedia.type)
-      const verdict = await moderateImage(thumb, localMedia.type)
-      // Fail CLOSED: only post media that was actually checked AND cleared. A clear
-      // violation shows the reason; anything we couldn't verify (moderation
-      // unavailable / undecodable media) is held back rather than posted unscreened.
-      const cleared = verdict && verdict.checked === true && verdict.allowed === true
-      if (!cleared) {
+      const screen = await screenMediaForUpload(localMedia.uri, localMedia.type)
+      if (!screen.ok) {
         setPosting(false)
         setModNote(
-          verdict && verdict.allowed === false
-            ? (verdict.reason || 'That media can’t be posted — it may violate our community guidelines.')
-            : 'Couldn’t check that media right now, so it wasn’t posted. Please try again in a moment.',
+          screen.violation
+            ? (screen.reason || 'That media can’t be posted — it may violate our community guidelines.')
+            : screen.unsupported
+              ? 'Photos and videos can be posted from the web app for now.'
+              : 'Couldn’t check that media right now, so it wasn’t posted. Please try again in a moment.',
         )
         setTimeout(() => setModNote(null), 4800)
         return

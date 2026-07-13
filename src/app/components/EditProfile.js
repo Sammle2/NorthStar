@@ -6,6 +6,7 @@ import { Camera, Check, Globe, Lock, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import Avatar from './Avatar'
 import { uploadAvatar, isUsernameAvailable, saveProfileNow } from '../../services/socialService'
+import { screenMediaForUpload } from '../../services/mediaScreening'
 
 // Edit your public profile: photo, handle, name, bio, city, and who can see you.
 export default function EditProfile({ profile, onUpdate, onClose }) {
@@ -31,6 +32,21 @@ export default function EditProfile({ profile, onUpdate, onClose }) {
     const uri = res.assets?.[0]?.uri
     if (!uri) return
     setUploading(true)
+    // Screen the photo BEFORE uploading — the same pipeline feed posts use
+    // (thumbnail → vision moderator, FAIL CLOSED): a clear violation blocks it
+    // with the reason; anything unverifiable is held back, never set unscreened.
+    const screen = await screenMediaForUpload(uri, 'image')
+    if (!screen.ok) {
+      setUploading(false)
+      setError(
+        screen.violation
+          ? (screen.reason || 'That photo can’t be used as a profile picture — it may violate our community guidelines.')
+          : screen.unsupported
+            ? 'Profile photos can be set from the web app for now.'
+            : 'Couldn’t check that photo right now, so it wasn’t set. Please try again in a moment.',
+      )
+      return
+    }
     const { url, error: upErr } = await uploadAvatar(profile.userId, uri)
     setUploading(false)
     if (upErr) {
