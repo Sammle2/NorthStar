@@ -25,7 +25,7 @@ export default function AddFriends({ profile, onClose, onChanged, onMessageUser 
   const [busyId, setBusyId] = useState(null)
 
   const load = async () => {
-    const fs = await getFriendships()
+    const fs = (await getFriendships()) || []
     setFriendships(fs)
     const ids = Array.from(new Set(fs.flatMap((f) => [f.requester_id, f.addressee_id]).filter((id) => id !== myId)))
     if (ids.length) {
@@ -158,7 +158,7 @@ export default function AddFriends({ profile, onClose, onChanged, onMessageUser 
       </ScrollView>
 
       {viewing && (
-        <UserProfileModal card={viewing} status={statusFor(viewing.id)} busy={!!busyId} onClose={() => setViewing(null)}
+        <UserProfileModal card={viewing} status={statusFor(viewing.id)} statusLoading={loading} busy={!!busyId} onClose={() => setViewing(null)}
           onAdd={() => add(viewing.id)} onAccept={(fid) => accept(fid, viewing.id)} onRemove={(fid) => remove(fid)}
           onMessage={onMessageUser ? () => { const id = viewing.id; setViewing(null); onMessageUser(id) } : undefined} />
       )}

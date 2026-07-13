@@ -85,6 +85,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, onMessage
   const [incomingCount, setIncomingCount] = useState(0)
   // How many accepted friends I have — chooses which empty-state CTA to show.
   const [friendCount, setFriendCount] = useState(0)
+  const [friendIdSet, setFriendIdSet] = useState(null) // Set of accepted friends' ids (null until loaded)
   // The post whose report/block sheet is open, and a transient confirmation note.
   const [moderating, setModerating] = useState(null)
   const [modNote, setModNote] = useState(null)
@@ -107,7 +108,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, onMessage
     setLoading(true)
     // Friendships load on BOTH segments — the feed needs them on "My Friends",
     // and the pending-request badge/banner must show no matter where you are.
-    const fs = await getFriendships()
+    const fs = (await getFriendships()) || []
     setIncomingCount(fs.filter((f) => f.status !== 'accepted' && f.addressee_id === myId).length)
     // Accepted friends where I'm actually a party — computed once, drives both
     // the friends feed and the empty-state CTA.
@@ -119,6 +120,9 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, onMessage
         .map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id)),
     )]
     setFriendCount(friendIds.length)
+    // Kept as a Set for render-time privacy checks: a PRIVATE author's stats
+    // (streak / % to dream) only show under their posts to accepted friends.
+    setFriendIdSet(new Set(friendIds))
     // The Circles segment renders its own data (CirclesPanel) — no posts to fetch.
     if (which === 'circles') { setPosts([]); setLoading(false); return }
     const rows = which === 'friends' ? await getFriendsFeed(friendIds, myId) : await getPublicFeed(myId)
@@ -399,27 +403,31 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, onMessage
 
               {/* Streak + dream-progress strip — the author's momentum, under the post.
                   Progress is shown for my own posts (computed locally); friends' posts
-                  show their streak from the public projection. */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  <Flame size={14} color={C.amber} strokeWidth={2.2} />
-                  <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>
-                    {(p.userId === myId ? myStreak : (p.author?.streak || 0))}-day streak
-                  </Text>
+                  show their streak from the public projection. PRIVATE authors' stats
+                  are hidden from everyone but their accepted friends — a private
+                  account's public post shows content + name only. */}
+              {(p.userId === myId || p.author?.visibility !== 'private' || friendIdSet?.has(p.userId)) && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <Flame size={14} color={C.amber} strokeWidth={2.2} />
+                    <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>
+                      {(p.userId === myId ? myStreak : (p.author?.streak || 0))}-day streak
+                    </Text>
+                  </View>
+                  {/* Dream progress: my own is computed locally (live); friends' comes
+                      from their public projection (dream_progress). Hidden if unknown. */}
+                  {(() => {
+                    const pct = p.userId === myId ? myDreamPct : p.author?.dream_progress
+                    if (pct == null) return null
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                        <TrendingUp size={14} color={C.violet} strokeWidth={2.2} />
+                        <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>{pct}% to dream</Text>
+                      </View>
+                    )
+                  })()}
                 </View>
-                {/* Dream progress: my own is computed locally (live); friends' comes
-                    from their public projection (dream_progress). Hidden if unknown. */}
-                {(() => {
-                  const pct = p.userId === myId ? myDreamPct : p.author?.dream_progress
-                  if (pct == null) return null
-                  return (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                      <TrendingUp size={14} color={C.violet} strokeWidth={2.2} />
-                      <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>{pct}% to dream</Text>
-                    </View>
-                  )
-                })()}
-              </View>
+              )}
 
               <Pressable onPress={() => like(p)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, alignSelf: 'flex-start' }}>
                 <Heart size={17} color={p.likedByMe ? C.pink : C.faint} fill={p.likedByMe ? C.pink : 'transparent'} strokeWidth={2.2} />

@@ -154,6 +154,10 @@ export async function getProfile(userId) {
 
 // ── Friend graph ──
 // All friendship rows that involve me (pending + accepted, in/out).
+// Returns NULL when the fetch failed — list callers can `|| []`, but
+// privacy-sensitive callers (the profile popup) must treat null as
+// "relationship unknown", never as "not friends": offering Add friend on an
+// existing friend's locked card is worse than showing a loading state.
 export async function getFriendships() {
   try {
     const supabase = getSupabaseClient()
@@ -165,7 +169,7 @@ export async function getFriendships() {
     return data || []
   } catch (e) {
     console.warn('[Social] getFriendships failed:', e?.message)
-    return []
+    return null
   }
 }
 

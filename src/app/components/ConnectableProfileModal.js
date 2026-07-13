@@ -11,7 +11,10 @@ export default function ConnectableProfileModal({ card, myId, onClose, onChanged
   const [friendships, setFriendships] = useState(null) // null until loaded
   const [busy, setBusy] = useState(false)
 
-  const load = async () => setFriendships(await getFriendships())
+  // getFriendships returns null on failure — keep `friendships` null then, so a
+  // private card stays in the modal's loading state instead of mislabeling an
+  // actual friend as a stranger (locked + a wrong "Add friend" button).
+  const load = async () => { const fs = await getFriendships(); if (fs) setFriendships(fs) }
   useEffect(() => { load() }, [])
 
   // Same mapping AddFriends uses. Returns undefined (→ no button) for yourself
@@ -34,6 +37,7 @@ export default function ConnectableProfileModal({ card, myId, onClose, onChanged
     <UserProfileModal
       card={card}
       status={statusFor(card?.id)}
+      statusLoading={friendships === null}
       busy={busy}
       onClose={onClose}
       onAdd={add}

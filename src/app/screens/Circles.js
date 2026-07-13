@@ -172,7 +172,7 @@ export function CircleDetail({ profile, circle, onClose, onMessageUser }) {
 
   const openInvite = async () => {
     setInviting(true)
-    const fs = await getFriendships()
+    const fs = (await getFriendships()) || []
     const ids = [...new Set(fs.filter((f) => f.status === 'accepted').map((f) => (f.requester_id === myId ? f.addressee_id : f.requester_id)))]
     const memberIds = new Set(members.map((m) => m.user_id))
     setFriends((await getIdentities(ids)).filter((f) => !memberIds.has(f.id)))
