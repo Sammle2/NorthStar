@@ -13,15 +13,20 @@ export function capName(name) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Dream-life survey
 // ─────────────────────────────────────────────────────────────────────────────
+// Each life area asks TWO personal questions: how much it matters (`q`,
+// 0–3 importance) and whether they're happy with it TODAY (`satQ`, yes/
+// neutral/no). Importance alone finds what they want; satisfaction finds
+// where change is overdue — high importance + low satisfaction is the
+// highest-leverage place to build. `label` stays for legacy displays.
 export const DREAM_QUESTIONS = [
-  { key: 'career', emoji: '🚀', label: 'A career or business you’re proud of', short: 'work' },
-  { key: 'wealth', emoji: '💎', label: 'Financial freedom and security', short: 'wealth' },
-  { key: 'health', emoji: '⚡', label: 'A fit, healthy, energized body', short: 'health' },
-  { key: 'relationships', emoji: '❤️', label: 'Deep relationships and family', short: 'relationships' },
-  { key: 'creative', emoji: '🎨', label: 'Creating things that matter to you', short: 'creative work' },
-  { key: 'travel', emoji: '🌍', label: 'Travel, adventure, new experiences', short: 'adventure' },
-  { key: 'mindset', emoji: '🧘', label: 'Inner peace, growth, and purpose', short: 'inner growth' },
-  { key: 'lifestyle', emoji: '🕊️', label: 'Freedom over your time and life', short: 'lifestyle' },
+  { key: 'career', emoji: '🚀', label: 'A career or business you’re proud of', short: 'work', q: 'How important is doing work you love?', satQ: 'Do you love your work today?' },
+  { key: 'wealth', emoji: '💎', label: 'Financial freedom and security', short: 'wealth', q: 'How important is financial freedom to you?', satQ: 'Are you happy with your finances today?' },
+  { key: 'health', emoji: '⚡', label: 'A fit, healthy, energized body', short: 'health', q: 'How important is a fit, energized body?', satQ: 'Are you happy with your health today?' },
+  { key: 'relationships', emoji: '❤️', label: 'Deep relationships and family', short: 'relationships', q: 'How important are deep relationships and family?', satQ: 'Are your relationships where you want them?' },
+  { key: 'creative', emoji: '🎨', label: 'Creating things that matter to you', short: 'creative work', q: 'How important is creating things that matter to you?', satQ: 'Are you making what you want to make?' },
+  { key: 'travel', emoji: '🌍', label: 'Travel, adventure, new experiences', short: 'adventure', q: 'How important are travel and new experiences?', satQ: 'Getting enough adventure lately?' },
+  { key: 'mindset', emoji: '🧘', label: 'Inner peace, growth, and purpose', short: 'inner growth', q: 'How important are inner peace and purpose?', satQ: 'Do you feel at peace with where you are?' },
+  { key: 'lifestyle', emoji: '🕊️', label: 'Freedom over your time and life', short: 'lifestyle', q: 'How important is owning your own time?', satQ: 'Do you control your time today?' },
 ]
 
 export const INTEREST_LEVELS = [
@@ -31,6 +36,34 @@ export const INTEREST_LEVELS = [
   { v: 3, label: "It's everything" },
 ]
 export const MAX_EVERYTHING = 2 // only two domains can be "It's everything"
+
+// "Are you happy with this today?" — current satisfaction per area.
+export const SAT_LEVELS = [
+  { v: 1, label: 'Yes' },
+  { v: 0, label: 'Neutral' },
+  { v: -1, label: 'No' },
+]
+
+// Where change is most overdue: what they care about most, weighted by how
+// unhappy they are with it right now. Importance dominates (×2) so a mild
+// "meh" about something they barely care about never outranks a passion.
+export function leverageScore(importance = 0, satisfaction = 0) {
+  return importance * 2 + (1 - satisfaction)
+}
+
+// Rank the areas worth building goals around: must matter (importance ≥ 2),
+// most-leveraged first. Returns [{ key, importance, satisfaction, score }].
+export function rankLeverage(answers = {}, satisfaction = {}) {
+  return Object.entries(answers)
+    .filter(([, v]) => v >= 2)
+    .map(([key, v]) => ({
+      key,
+      importance: v,
+      satisfaction: satisfaction[key] ?? 0,
+      score: leverageScore(v, satisfaction[key] ?? 0),
+    }))
+    .sort((a, b) => b.score - a.score)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Typo correction — understand what the user MEANT, not the literal letters.
@@ -310,6 +343,29 @@ const THEME_ROADMAP = {
 }
 
 const HORIZONS = ['3 months', '6 months', '12 months']
+
+// Parse a milestone horizon label ("6 weeks", "3 months", "1 year", "90 days")
+// into months. Unknown/absent → null so callers can pick their own default.
+export function horizonToMonths(h) {
+  const s = String(h || '').toLowerCase()
+  const num = parseFloat((s.match(/(\d+(?:\.\d+)?)/) || [])[1])
+  if (!num || !Number.isFinite(num)) return null
+  if (s.includes('week')) return num / 4.345
+  if (s.includes('day')) return num / 30.44
+  if (s.includes('year')) return num * 12
+  return num // bare numbers and "months" both read as months
+}
+
+// How long a goal actually runs: its FINAL milestone's horizon, in months,
+// clamped to the 0–12 month window the roadmap timeline displays. Goals whose
+// horizons can't be parsed read as the full 12 months.
+export function goalDurationMonths(goal) {
+  const ms = goal?.milestones || []
+  const last = ms[ms.length - 1]
+  const m = horizonToMonths(last?.horizon)
+  if (m == null) return 12
+  return Math.min(12, Math.max(0.75, m))
+}
 
 // Compact 2-3 word name for a stepping stone, shown on the roadmap path (the
 // full title lives in the tap-to-expand dropdown). Used as the fallback when a
@@ -663,9 +719,9 @@ export function generateDreamStory({ age, answers, goalTitle, extra }) {
 export const COACH_MESSAGES = {
   tough: {
     welcome: "Listen up. You said you want to change your life — so let's find out what you're made of. First, the basics:",
-    dreamIntro: "Good. Now I want to see what you're actually chasing. Rate how much each of these pulls at you — be honest.",
+    dreamIntro: "Good. Now let's find out what actually needs to change. For each part of life: how much does it matter to you, and are you honestly happy with it today? No sugarcoating.",
     extraPrompt: "Anything else about the life you want that I should know? Don't hold back. (Or skip it.)",
-    goalPrompt: "Now the one that matters most. What's the single goal you need to conquer first — the one that changes everything?",
+    goalPrompt: "Now get concrete. What's the ONE goal you're taking on first — losing 20 pounds, saving $5,000, running a marathon, launching the business? Name it.",
     toneConfirm: "Noted. I'm going to push you harder than you think you need. That's the deal.",
     generating: 'Building your roadmap. This is the last time excuses get to live here.',
     checkIn: 'Day {streak}. You either showed up or you didn’t. Which is it?',
@@ -674,9 +730,9 @@ export const COACH_MESSAGES = {
   },
   gentle: {
     welcome: "Hi there, welcome — I'm so glad you're here. Let's start gently with a little about you:",
-    dreamIntro: "Beautiful. Now let's dream together — for each one, just tell me how much it speaks to your heart.",
+    dreamIntro: "Beautiful. Now let's look at each part of life together — how much does it speak to your heart, and how does it feel today? Honest answers help me help you.",
     extraPrompt: 'Is there anything else about your dream life you’d love me to hold onto? (Totally okay to skip.)',
-    goalPrompt: "Wonderful. What's one goal you'd most love to nurture and grow first?",
+    goalPrompt: "Wonderful. What's one specific goal you'd love to start with? Maybe getting healthier, saving for something special, writing your book — whatever calls to you most.",
     toneConfirm: "I'll be right here, supporting and encouraging you every step. You've got this.",
     generating: 'Creating something beautiful for you. I’m honored to walk this with you.',
     checkIn: 'How are you feeling today, {name}? Every small step matters.',
@@ -685,9 +741,9 @@ export const COACH_MESSAGES = {
   },
   default: {
     welcome: "Hey — ready to build something real? I'm {coach}. Before we dream, tell me a bit about you:",
-    dreamIntro: "Nice to meet you. Let's map what your dream life actually looks like — rate how much each one matters to you.",
+    dreamIntro: "Nice to meet you. Let's map where you are — for each part of life, tell me how much it matters to you and whether you're happy with it today.",
     extraPrompt: "Anything else about your dream life you want me to know? Add it here — or skip ahead.",
-    goalPrompt: "Now the big one. What's the single most important goal you want to tackle first?",
+    goalPrompt: "Now the big one. What specific goal do you want to tackle first — losing weight, saving money, running a marathon, starting something new? Give me the real one.",
     toneConfirm: "Perfect. I'll balance honesty with encouragement — enough edge to keep you moving, enough support to keep you believing.",
     generating: 'Building your personalized roadmap. This is where things get real.',
     checkIn: 'Hey {name} — checking in. How’s the momentum feeling today?',

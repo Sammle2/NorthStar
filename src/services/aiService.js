@@ -291,13 +291,22 @@ const TONE_DESCRIPTIONS = {
 
 // Personalized "dream life" reading — a cinematic, second-person narrative of the
 // future the user is building, grounded in THEIR own stated dream/goal.
-export async function generateDreamLifeStory({ name, goal, goalTitle, extra, tone = 'default' }) {
+export async function generateDreamLifeStory({ name, goal, goalTitle, extra, tone = 'default', focus = 'self', pains = [] }) {
   const firstName = (name || '').split(' ')[0] || 'friend'
   const dream = [goal, extra].filter((s) => s && s.trim()).join(' — ')
+  // What the intake says they're centered on: the people around them, or their
+  // own success — the story leans whichever way THEY do.
+  const focusLine = focus === 'others'
+    ? 'Their intake shows they are motivated by PEOPLE — family, relationships, the lives they touch. Center the story on the impact this life has on the people they love: who is beside them, who they can now show up for, provide for, and inspire.'
+    : 'Their intake shows they are motivated by PERSONAL success. Center the story on what THEY have built and become: the mastery, the freedom, the pride of having done it.'
+  const painsLine = pains.length
+    ? `\nToday they are NOT satisfied with: ${pains.join(', ')}. Show those exact parts of life transformed — the contrast between today's frustration and this future is the emotional core.`
+    : ''
   const prompt = `You are ${firstName}'s personal life coach. Write a vivid, emotional "dream life" reading addressed directly to ${firstName} as "you".
 
 Base it entirely on the dream THEY described — do not invent a generic dream:
 Their stated goal/dream: "${dream || goalTitle || goal}"
+${focusLine}${painsLine}
 
 Describe, in cinematic present tense, what their life looks and feels like once this dream is real — specific to this exact dream (e.g. if their goal is to make art, paint the life of a working artist: the studio, the work, the recognition, how it feels). Make it feel inevitable and earned.
 
@@ -307,6 +316,8 @@ Rules:
 - 2 to 3 short paragraphs, separated by a blank line.
 - Second person ("you"). No greeting, no sign-off, no preamble, no quotation marks around the whole thing.
 - Concrete and sensory, not vague platitudes.
+- REALISTIC: this must read as an ambitious-but-reachable version of THEIR life, not a fantasy. No mansions, fame, or millions unless they explicitly asked for them — the reader should think "I could actually get there".
+- Flawless grammar, spelling, and punctuation — proofread the final text.
 - Plain prose only — NO markdown, no asterisks or underscores for emphasis, no formatting characters.
 Return ONLY the story text.`
 
@@ -344,6 +355,8 @@ Their goal, in their own words: "${dream || rawGoal}"${context && context.trim()
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
 Build a roadmap with THREE milestones. Default horizons are 3 months, 6 months, and 12 months — but if THEIR goal states its own deadline ("in 6 months", "by June", "this year"), scale the three checkpoints to fit THAT deadline instead (e.g. "6 weeks" / "3 months" / "6 months") so the final milestone lands exactly when they said. Each milestone has exactly THREE stepping stones — the smaller actions that get them there.
+
+Every milestone must be SMART — Specific (names the concrete noun, artifact, or event from THIS goal), Measurable (a number or a condition you could verify as done), Achievable (reachable from their current situation), Relevant (directly advances the stated goal), and Time-bound (fits its horizon). If a milestone fails any of the five, rewrite it before answering.
 
 TIMELINE RULES — the plan must make sense as a schedule, not just a list:
 - The three milestones are a progression: the first builds the foundation, the second is measurable proof of being roughly halfway, and the FINAL milestone IS the goal achieved — its title states the goal's success condition, verifiably done.
@@ -471,6 +484,44 @@ Return ONLY a JSON array of ${count} strings, e.g. ["Outline the intro", "Draft 
   return steps
 }
 
+// One turn of Nova's onboarding "dig" chat — the short conversation after the
+// life-areas rating that turns vague wants into the SPECIFIC places the user
+// is dissatisfied and truly wants change, then tells them it's buildable.
+// `areas` = [{ label, satisfaction }] highest-leverage first; `history` = the
+// dig messages so far [{ from: 'coach'|'user', text }]. Returns { reply, done }.
+// Fails open: callers fall back to local questions when this throws.
+export async function dreamDig({ name = '', tone = 'default', areas = [], history = [] }) {
+  const firstName = (name || '').split(' ')[0] || 'friend'
+  const userTurns = history.filter((m) => m.from === 'user').length
+  const areaList = areas
+    .map((a) => `- ${a.label}${a.satisfaction < 0 ? ' (they are NOT happy with this today)' : a.satisfaction > 0 ? ' (already going well)' : ' (feels neutral today)'}`)
+    .join('\n')
+  const transcript = history.map((m) => `${m.from === 'user' ? firstName : 'You'}: ${m.text}`).join('\n')
+
+  const prompt = `You are Nova, ${firstName}'s personal life coach, mid-onboarding. They just rated the parts of life that matter to them and how satisfied they are with each today:
+${areaList}
+
+Your job in this short chat: pinpoint where they MOST want change and what "better" concretely looks like for them — personal and specific, never generic. Ask about their actual situation, e.g. "What would you do if you weren't doing your current job?", "What does your money stress look like day to day?", "What would a great week look like?".
+
+Rules:
+- ONE question per turn, 1–2 sentences, warm and direct. No lists, no preamble.
+- React briefly to what they just said before asking the next question.
+- After their ${userTurns >= 2 ? 'answer below — now WRAP UP' : 'second answer, wrap up'}: reflect back the specific change they want in one sentence, tell them plainly that it is buildable from where they are today, and set done=true. The wrap-up must feel earned and realistic — grounded in what they said, never hype.
+- Flawless grammar and spelling.
+
+Conversation so far:
+${transcript || '(you have not asked anything yet)'}
+
+Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
+
+Return ONLY JSON, no prose: {"reply": "<your next message>", "done": <true if you just wrapped up, else false>}`
+
+  const res = await callClaude(prompt, 300)
+  const parsed = extractJson(res)
+  if (!parsed || typeof parsed.reply !== 'string' || !parsed.reply.trim()) throw new Error('bad dig reply')
+  return { reply: parsed.reply.trim(), done: !!parsed.done || userTurns >= 2 }
+}
+
 // Specific, actionable SUPPORTING goals for the other life areas a user cares
 // about (from the onboarding survey), grounded in their dream + primary goal —
 // so the roadmap is never padded with vague template goals. Returns
@@ -485,7 +536,7 @@ export async function generateSupportingGoals({ name = '', primaryGoal = '', ext
 They also care about these other life areas and want ONE concrete goal in each:
 ${domainList}
 
-For each area, write ONE specific, actionable goal for ${firstName} — something real they could start this week and measure, as a short goal title (Title Case, no leading "I want to"). It MUST be specific: prefer a number, a named habit, a shipped thing, or a concrete milestone, and tie it to their dream where it fits. NEVER vague — do NOT write things like "Build a career you're proud of", "Get healthier", "Reach financial freedom", or "Find balance".
+For each area, write ONE specific, actionable goal for ${firstName} — something real they could start this week and measure, as a short goal title (Title Case, no leading "I want to"). Make it SMART: Specific (a number, a named habit, a shipped thing, or a concrete milestone), Measurable, Achievable from their current situation, Relevant to their dream, and Time-bound where natural ("in 90 days", "by summer"). NEVER vague — do NOT write things like "Build a career you're proud of", "Get healthier", "Reach financial freedom", or "Find balance". Where an area is marked as one they're unhappy with today, aim the goal at fixing that specific dissatisfaction.
 
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 

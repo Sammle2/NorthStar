@@ -4,7 +4,7 @@ import Svg, { Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-native-s
 import { RotateCcw } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
-import { recomputeGoal, shortStepLabel } from '../aiEngine'
+import { goalDurationMonths, recomputeGoal, shortStepLabel } from '../aiEngine'
 import StarField from '../components/StarField'
 
 // "The Path" — the winding road. Square One at the bottom, the summit at the top.
@@ -168,17 +168,15 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
         )}
       </View>
 
-      {/* Path switcher — wraps onto multiple rows so every goal chip is visible
-          (horizontal scroll was easy to miss, especially on web). */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 24, marginTop: 6, marginBottom: 4 }}>
-        <Chip label="✦ The Dream" on={view === 'dream'} color={C.amber} onPress={() => { setView('dream'); setSelected(null); setExpandedStep(null) }} />
-        {goals.map((g) => {
-          const c = CATEGORY_COLORS[g.category] || C.amber
-          return (
-            <Chip key={g.id} label={g.title} on={view === g.id} color={c} onPress={() => { setView(g.id); setSelected(null); setExpandedStep(null) }} />
-          )
-        })}
-      </View>
+      {/* Goal timeline — every goal on one 0→12 month scale. Each bar runs from
+          day 0 to the goal's OWN deadline (its final milestone's horizon), so a
+          6-month goal visibly ends at the halfway mark. Tap a bar to open that
+          goal's path; the Dream row spans the whole year. */}
+      <GoalTimeline
+        goals={goals}
+        view={view}
+        onPick={(id) => { setView(id); setSelected(null); setExpandedStep(null) }}
+      />
 
       <View style={{ flex: 1 }}>
         {/* Parallax starfield — drifts up slower than the road as you scroll, giving depth. */}
@@ -390,12 +388,83 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   )
 }
 
-function Chip({ label, on, color, onPress }) {
-  // Chips show the FULL goal title — no character slicing. Long titles shrink to
-  // the row and wrap onto a second line rather than getting cut off.
+// ── Goal timeline ─────────────────────────────────────────────────────────────
+// One shared 0→12-month scale. Each goal renders as a bar from day 0 to its own
+// deadline (parsed from its final milestone's horizon), so different-length
+// goals sit honestly against the same year. Tapping a row opens that path.
+const fmtMonths = (m) => (m < 1.75 ? `${Math.round(m * 4.345)} wk` : `${Math.round(m)} mo`)
+const axisLbl = { position: 'absolute', top: 0, fontFamily: F.medium, fontSize: 9, color: C.faint2 }
+
+function GoalTimeline({ goals, view, onPick }) {
   return (
-    <Pressable onPress={onPress} style={{ flexShrink: 1, maxWidth: '100%', borderWidth: 1, borderRadius: 99, paddingVertical: 8, paddingHorizontal: 14, borderColor: on ? color : C.lineStrong, backgroundColor: on ? color + '1f' : 'transparent' }}>
-      <Text style={{ fontFamily: on ? F.bold : F.medium, color: on ? color : C.dim, fontSize: 12.5, textAlign: 'center', lineHeight: 17 }}>{label}</Text>
+    <View style={{ marginHorizontal: 24, marginTop: 6, marginBottom: 4, borderRadius: 14, borderWidth: 1, borderColor: C.lineMid, backgroundColor: 'rgba(13,13,27,0.6)', paddingVertical: 8, paddingHorizontal: 12 }}>
+      <View style={{ position: 'relative' }}>
+        {/* Month gridlines at 3 / 6 / 9 months (the edges are 0 and 12). */}
+        {[25, 50, 75].map((p) => (
+          <View key={p} pointerEvents="none" style={{ position: 'absolute', left: `${p}%`, top: 0, bottom: 0, width: 1, backgroundColor: 'rgba(167,139,250,0.12)' }} />
+        ))}
+        <TimelineRow label="✦ The Dream" pct={100} color={C.amber} active={view === 'dream'} onPress={() => onPick('dream')} />
+        {goals.map((g) => {
+          const months = goalDurationMonths(g)
+          return (
+            <TimelineRow
+              key={g.id}
+              label={g.title}
+              months={months}
+              pct={(months / 12) * 100}
+              color={CATEGORY_COLORS[g.category] || C.amber}
+              active={view === g.id}
+              onPress={() => onPick(g.id)}
+            />
+          )
+        })}
+      </View>
+      {/* Axis — interior labels are CENTERED on their gridlines (a space-between
+          row would drift them off the 25/50/75% marks). */}
+      <View style={{ height: 12, marginTop: 5 }}>
+        <Text style={[axisLbl, { left: 0 }]}>Day 0</Text>
+        {[{ p: 25, t: '3 mo' }, { p: 50, t: '6 mo' }, { p: 75, t: '9 mo' }].map(({ p, t }) => (
+          <Text key={p} style={[axisLbl, { left: `${p}%`, width: 40, marginLeft: -20, textAlign: 'center' }]}>{t}</Text>
+        ))}
+        <Text style={[axisLbl, { right: 0 }]}>12 mo</Text>
+      </View>
+    </View>
+  )
+}
+
+function TimelineRow({ label, pct, color, active, onPress, months }) {
+  // Wide bars carry their title inside; short bars put it to the right so a
+  // 6-week goal never squeezes its name into a sliver.
+  const wide = pct >= 55
+  const title = `${label}${months != null ? ` · ${fmtMonths(months)}` : ''}`
+  return (
+    <Pressable onPress={onPress} style={{ height: 27, justifyContent: 'center', marginVertical: 2 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View
+          style={{
+            width: `${Math.max(6, Math.min(100, pct))}%`,
+            minWidth: 26,
+            height: 23,
+            borderRadius: 7,
+            backgroundColor: active ? color + '30' : color + '14',
+            borderWidth: 1.5,
+            borderColor: active ? color : color + '55',
+            justifyContent: 'center',
+            paddingHorizontal: 8,
+          }}
+        >
+          {wide && (
+            <Text numberOfLines={1} style={{ fontFamily: active ? F.bold : F.medium, fontSize: 11, color: active ? color : C.dim }}>
+              {title}
+            </Text>
+          )}
+        </View>
+        {!wide && (
+          <Text numberOfLines={1} style={{ flex: 1, marginLeft: 8, fontFamily: active ? F.bold : F.medium, fontSize: 11, color: active ? color : C.dim }}>
+            {title}
+          </Text>
+        )}
+      </View>
     </Pressable>
   )
 }
