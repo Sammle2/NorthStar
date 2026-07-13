@@ -12,6 +12,8 @@ import StarField from '../components/StarField'
 // little stepping stones leading to each one. Stepping stones are your day-to-day
 // wins — tap to complete them; a milestone lights up once all its stones are done.
 // Editing the milestones themselves happens only in Redo (GoalEditor).
+// Up top, a timeline switcher: each goal sits at its timeframeMonths along a
+// Day 0 → horizon axis, with the Dream star at the far end.
 const SEG_H = 150
 const PAD_TOP = 130
 const PAD_BOTTOM = 110
@@ -188,15 +190,9 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
         )}
       </View>
 
-      {/* Goal timeline — every goal on one 0→12 month scale. Each bar runs from
-          day 0 to the goal's OWN deadline (its final milestone's horizon), so a
-          6-month goal visibly ends at the halfway mark. Tap a bar to open that
-          goal's path; the Dream row spans the whole year. */}
-      <GoalTimeline
-        goals={goals}
-        view={view}
-        onPick={(id) => { setView(id); setSelected(null); setExpandedStep(null) }}
-      />
+      {/* Path switcher — a timeline from Day 0 to the horizon: tap a goal's node
+          (or the Dream star at the far end) to switch which path is shown below. */}
+      <TimelineSwitcher goals={goals} view={view} onSelect={(id) => { setView(id); setSelected(null); setExpandedStep(null) }} />
 
       <View style={{ flex: 1 }}>
         {/* Parallax starfield — drifts up slower than the road as you scroll, giving depth. */}
@@ -408,84 +404,79 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   )
 }
 
-// ── Goal timeline ─────────────────────────────────────────────────────────────
-// One shared 0→12-month scale. Each goal renders as a bar from day 0 to its own
-// deadline (parsed from its final milestone's horizon), so different-length
-// goals sit honestly against the same year. Tapping a row opens that path.
-const fmtMonths = (m) => (m < 1.75 ? `${Math.round(m * 4.345)} wk` : `${Math.round(m)} mo`)
-const axisLbl = { position: 'absolute', top: 0, fontFamily: F.medium, fontSize: 9, color: C.faint2 }
+// Timeline switcher — the axis runs Day 0 → the horizon (largest goal timeframe,
+// min 12mo). Each goal is a node at its timeframeMonths; the Dream star anchors
+// the far right. Tapping behaves exactly like the old chips: onSelect(g.id | 'dream').
+const TL_H = 78
+const TL_LINE_Y = 36
+const TL_LABEL_W = 84
 
-function GoalTimeline({ goals, view, onPick }) {
+function TimelineSwitcher({ goals, view, onSelect }) {
+  // Measure the row itself (same trick as the road below) — on web the app lives
+  // in a fixed 375px frame, so the window width can't be trusted.
+  const [w, setW] = useState(0)
+  const T = Math.max(12, ...goals.map(goalDurationMonths))
+  const ticks = [0, 3, 6, 12].concat(T >= 18 ? [18] : []).concat(T >= 24 ? [24] : [])
+  // Goals sharing a month get nudged apart so nodes don't stack; everything is
+  // clamped clear of the edges — the Dream star owns the far right.
+  const seen = {}
+  const placed = goals.map((g, i) => {
+    const months = goalDurationMonths(g)
+    const k = seen[months] || 0
+    seen[months] = k + 1
+    const dx = (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 12
+    const x = Math.max(10, Math.min((months / T) * w + dx, w - 24))
+    // Near the right end the top row belongs to "The Dream" label — goals
+    // landing there always drop below the axis so the two never collide.
+    return { g, x, above: x > w - 78 ? false : i % 2 === 0 }
+  })
+  // Labels may spill a little into the 24px side margins, never past the frame.
+  const clampLabel = (x) => Math.max(-16, Math.min(x - TL_LABEL_W / 2, w - TL_LABEL_W + 16))
   return (
-    <View style={{ marginHorizontal: 24, marginTop: 6, marginBottom: 4, borderRadius: 14, borderWidth: 1, borderColor: C.lineMid, backgroundColor: 'rgba(13,13,27,0.6)', paddingVertical: 8, paddingHorizontal: 12 }}>
-      <View style={{ position: 'relative' }}>
-        {/* Month gridlines at 3 / 6 / 9 months (the edges are 0 and 12). */}
-        {[25, 50, 75].map((p) => (
-          <View key={p} pointerEvents="none" style={{ position: 'absolute', left: `${p}%`, top: 0, bottom: 0, width: 1, backgroundColor: 'rgba(167,139,250,0.12)' }} />
-        ))}
-        <TimelineRow label="✦ The Dream" pct={100} color={C.amber} active={view === 'dream'} onPress={() => onPick('dream')} />
-        {goals.map((g) => {
-          const months = goalDurationMonths(g)
-          return (
-            <TimelineRow
-              key={g.id}
-              label={g.title}
-              months={months}
-              pct={(months / 12) * 100}
-              color={CATEGORY_COLORS[g.category] || C.amber}
-              active={view === g.id}
-              onPress={() => onPick(g.id)}
-            />
-          )
-        })}
-      </View>
-      {/* Axis — interior labels are CENTERED on their gridlines (a space-between
-          row would drift them off the 25/50/75% marks). */}
-      <View style={{ height: 12, marginTop: 5 }}>
-        <Text style={[axisLbl, { left: 0 }]}>Day 0</Text>
-        {[{ p: 25, t: '3 mo' }, { p: 50, t: '6 mo' }, { p: 75, t: '9 mo' }].map(({ p, t }) => (
-          <Text key={p} style={[axisLbl, { left: `${p}%`, width: 40, marginLeft: -20, textAlign: 'center' }]}>{t}</Text>
-        ))}
-        <Text style={[axisLbl, { right: 0 }]}>12 mo</Text>
-      </View>
+    <View style={{ height: TL_H, marginHorizontal: 24, marginTop: 6, marginBottom: 4 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+      {w > 0 && (
+        <>
+          <View style={{ position: 'absolute', left: 0, right: 0, top: TL_LINE_Y, height: 1, backgroundColor: C.lineStrong }} />
+          {ticks.map((m) => (
+            <React.Fragment key={m}>
+              {m < T && <View style={{ position: 'absolute', left: (m / T) * w, top: TL_LINE_Y + 3, width: 1, height: 4, backgroundColor: C.lineStrong }} />}
+              <Text style={{ position: 'absolute', left: Math.max(-4, Math.min((m / T) * w - 20, w - 24)), top: 66, width: 40, fontFamily: F.medium, fontSize: 9, lineHeight: 12, color: C.faint2, textAlign: 'center' }}>
+                {m === 0 ? 'Day 0' : `${m}mo`}
+              </Text>
+            </React.Fragment>
+          ))}
+          {placed.map(({ g, x, above }) => {
+            const color = CATEGORY_COLORS[g.category] || C.amber
+            const on = view === g.id
+            const reached = g.progress >= 100
+            return (
+              <React.Fragment key={g.id}>
+                {/* Node — a selection ring when active; filled once the goal is reached */}
+                <Pressable onPress={() => onSelect(g.id)} hitSlop={6} style={{ position: 'absolute', left: x - 13, top: TL_LINE_Y - 13, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: on ? color : 'transparent' }}>
+                  <View
+                    style={[
+                      { width: 15, height: 15, borderRadius: 7.5, borderWidth: 2, borderColor: color, backgroundColor: reached ? color : C.bg, opacity: on ? 1 : 0.6 },
+                      on && { shadowColor: color, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+                    ]}
+                  />
+                </Pressable>
+                {/* Labels alternate above/below the axis so neighbors don't collide */}
+                <Pressable onPress={() => onSelect(g.id)} hitSlop={4} style={{ position: 'absolute', left: clampLabel(x), top: above ? 4 : TL_LINE_Y + 16, width: TL_LABEL_W }}>
+                  <Text numberOfLines={1} style={{ fontFamily: on ? F.semibold : F.medium, fontSize: 10.5, lineHeight: 13, color: on ? color : C.dim, textAlign: 'center' }}>{g.title}</Text>
+                </Pressable>
+              </React.Fragment>
+            )
+          })}
+          {/* The Dream — the star at the far end of the axis */}
+          <Pressable onPress={() => onSelect('dream')} hitSlop={6} style={{ position: 'absolute', left: w - 15, top: TL_LINE_Y - 15, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: view === 'dream' ? C.amber : C.lineStrong }}>
+            <Text style={{ fontSize: 14, color: C.amber, opacity: view === 'dream' ? 1 : 0.65 }}>✦</Text>
+          </Pressable>
+          <Pressable onPress={() => onSelect('dream')} hitSlop={4} style={{ position: 'absolute', left: w - 60, top: 4, width: 76 }}>
+            <Text numberOfLines={1} style={{ fontFamily: view === 'dream' ? F.semibold : F.medium, fontSize: 10.5, lineHeight: 13, color: view === 'dream' ? C.amber : C.dim, textAlign: 'right' }}>The Dream</Text>
+          </Pressable>
+        </>
+      )}
     </View>
-  )
-}
-
-function TimelineRow({ label, pct, color, active, onPress, months }) {
-  // Wide bars carry their title inside; short bars put it to the right so a
-  // 6-week goal never squeezes its name into a sliver.
-  const wide = pct >= 55
-  const title = `${label}${months != null ? ` · ${fmtMonths(months)}` : ''}`
-  return (
-    <Pressable onPress={onPress} style={{ height: 27, justifyContent: 'center', marginVertical: 2 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <View
-          style={{
-            width: `${Math.max(6, Math.min(100, pct))}%`,
-            minWidth: 26,
-            height: 23,
-            borderRadius: 7,
-            backgroundColor: active ? color + '30' : color + '14',
-            borderWidth: 1.5,
-            borderColor: active ? color : color + '55',
-            justifyContent: 'center',
-            paddingHorizontal: 8,
-          }}
-        >
-          {wide && (
-            <Text numberOfLines={1} style={{ fontFamily: active ? F.bold : F.medium, fontSize: 11, color: active ? color : C.dim }}>
-              {title}
-            </Text>
-          )}
-        </View>
-        {!wide && (
-          <Text numberOfLines={1} style={{ flex: 1, marginLeft: 8, fontFamily: active ? F.bold : F.medium, fontSize: 11, color: active ? color : C.dim }}>
-            {title}
-          </Text>
-        )}
-      </View>
-    </Pressable>
   )
 }
 

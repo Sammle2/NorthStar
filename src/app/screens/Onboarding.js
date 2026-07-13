@@ -16,20 +16,25 @@ import GlowProgress from '../components/GlowProgress'
 import { MessageBubble, TypingDots } from '../components/ChatBits'
 import {
   COACH_MESSAGES,
+  CURRENT_LEVELS,
+  CURRENT_QUESTIONS,
+  DESIRE_LEVELS,
   DREAM_QUESTIONS,
-  INTEREST_LEVELS,
-  MAX_EVERYTHING,
-  SAT_LEVELS,
+  FUTURE_QUESTIONS,
+  GOAL_EXAMPLES,
+  GOAL_EXAMPLES_DEFAULT,
   actionableTitle,
   buildSupportingGoal,
   capName,
+  deriveDomainSignals,
+  dreamFocus,
   generateDreamStory,
   generateGoals,
+  leverageAreas,
   normalizeAiGoal,
-  rankLeverage,
   validateGoal,
 } from '../aiEngine'
-import { dreamDig, generateDreamLifeStory, generateRoadmap, generateSupportingGoals, judgeGoal } from '../../services/aiService'
+import { generateDreamLifeStory, generateRoadmap, generateSupportingGoals, judgeGoal } from '../../services/aiService'
 
 const TONES = [
   { id: 'tough', label: 'Tough Love', desc: 'No BS, high expectations', emoji: '💪' },
@@ -38,42 +43,37 @@ const TONES = [
 ]
 const GENDERS = ['Male', 'Female', 'Prefer not to say']
 
-// Nova's dig chat — the specific, personal first question per life area. Used
-// as the opener (instant, no AI wait) and as the fallback when the AI is down.
-const LOCAL_DIG_Q = {
-  career: "What would you do if you weren't doing your current job?",
-  wealth: 'What does money stress actually look like in your week right now?',
-  health: "What's the first thing you'd change about how your body feels day to day?",
-  relationships: "Who do you wish you were closer to — and what's in the way?",
-  creative: "What's the thing you keep meaning to make but haven't started?",
-  travel: "What's the one place or experience you keep putting off?",
-  mindset: 'When did you last feel truly at peace — and what was different then?',
-  lifestyle: 'If you owned your whole week, what would an ordinary Tuesday look like?',
-}
-const LOCAL_DIG_FOLLOWUP = 'That tells me a lot. If that part of your life were exactly right a year from now, what would be different in an ordinary day?'
-const LOCAL_DIG_WRAP = "That's the change we're going to build toward — and from what you've told me, it's genuinely within reach. Let's aim your first goal at it."
-
 let idc = 0
 const nid = () => `m${Date.now()}_${idc++}`
 
+// Example chips for the goal step: one concrete goal from each leverage domain,
+// topped up from the defaults — "make it concrete" never faces a blank page.
+const buildExampleGoals = (areas) => {
+  const picks = []
+  for (const a of (areas || []).slice(0, 2)) {
+    const ex = (GOAL_EXAMPLES[a.key] || [])[0]
+    if (ex && !picks.includes(ex)) picks.push(ex)
+  }
+  for (const ex of GOAL_EXAMPLES_DEFAULT) {
+    if (picks.length >= 4) break
+    if (!picks.includes(ex)) picks.push(ex)
+  }
+  return picks.slice(0, 4)
+}
+
 // Screen 2 — the Coach's first conversation: intake form (incl. picking a
-// username + email for new accounts) → 8-question dream survey → free-text
-// add-ons → primary goal (validated) → tone → generate.
+// username + email for new accounts) → "Where I Am" (8 × 1–4 + optional note)
+// → "Where I'm Going" (8 × 1–4 + optional note) → the single biggest dream
+// (validated) → tone → generate.
 export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onBack }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [step, setStep] = useState('intake') // intake | survey | dig | goal | tone | generating
+  const [step, setStep] = useState('intake') // intake | current | future | goal | tone | generating
   const [isTyping, setIsTyping] = useState(false)
   const [toneSelected, setToneSelected] = useState(false)
   const [progress, setProgress] = useState(0)
-  const data = useRef({ name: '', age: '', gender: '', username: '', email: '', answers: {}, satisfaction: {}, extra: '', goal: '' })
-  // The dig chat's running transcript + the leverage-ranked areas driving it.
-  // digBusy serializes turns (one in-flight dreamDig at a time); digDone makes
-  // the dig→goal transition idempotent (double-tapped Skip, racing turns).
-  const digHistory = useRef([])
-  const digAreas = useRef([])
-  const digBusy = useRef(false)
-  const digDone = useRef(false)
+  const [exampleGoals, setExampleGoals] = useState([])
+  const data = useRef({ name: '', age: '', gender: '', username: '', email: '', current: {}, future: {}, goal: '' })
   const scrollRef = useRef(null)
 
   const addCoach = (text, delay = 700) =>
@@ -108,78 +108,27 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
     }
 
     addUser(`${capped} · ${age} · ${gender}${username ? ` · @${username}` : ''}`)
-    setStep('survey')
+    setStep('current')
     await addCoach(COACH_MESSAGES.default.dreamIntro, 1000)
     return null
   }
 
-  const submitSurvey = async (answers, satisfaction) => {
-    data.current = { ...data.current, answers, satisfaction }
-    addUser('Rated my life ✦')
-    setStep('dig')
-    // Nova digs into the highest-leverage areas — what they care about most,
-    // weighted by how unhappy they are with it today. The opener is local
-    // (instant, works offline); follow-ups come from the AI when it's up.
-    const ranked = rankLeverage(answers, satisfaction).slice(0, 3)
-    digAreas.current = ranked.map((r) => {
-      const q = DREAM_QUESTIONS.find((d) => d.key === r.key) || {}
-      return { key: r.key, label: q.label || r.key, short: q.short || r.key, satisfaction: r.satisfaction }
-    })
-    const top = digAreas.current[0]
-    const opener = top
-      ? `${top.satisfaction < 0
-          ? `You said ${top.short} really matters to you — and that it isn't where you want it today. `
-          : `You said ${top.short} matters most to you. `}${LOCAL_DIG_Q[top.key] || 'What would you change about it first?'}`
-      : 'Before we set your first goal — what part of your life do you most want to change right now?'
-    digHistory.current = [{ from: 'coach', text: opener }]
-    await addCoach(opener, 1000)
+  const submitCurrent = async (current) => {
+    data.current = { ...data.current, current }
+    addUser('Mapped where I am')
+    setStep('future')
+    await addCoach(COACH_MESSAGES.default.futureIntro, 900)
   }
 
-  // One user turn of the dig chat. Nova reacts + asks one more question, then
-  // wraps up (≈2 user answers) telling them the change is buildable. The AI
-  // drives the follow-ups; if it's unreachable, local lines keep the flow moving.
-  // Serialized: a send while a turn is in flight (or after the dig ended) is
-  // ignored, so racing turns can't interleave the transcript or double-finish.
-  const submitDig = async () => {
-    const value = input.trim()
-    if (!value || digBusy.current || digDone.current) return
-    digBusy.current = true
-    try {
-      setInput('')
-      addUser(value)
-      digHistory.current.push({ from: 'user', text: value })
-      const userTurns = digHistory.current.filter((m) => m.from === 'user').length
-      setIsTyping(true)
-      let res = null
-      try {
-        res = await dreamDig({ name: data.current.name, tone: 'default', areas: digAreas.current, history: digHistory.current })
-      } catch (e) {
-        console.warn('[Onboarding] dig turn failed, local fallback:', e?.message)
-      }
-      setIsTyping(false)
-      const done = res ? !!res.done : userTurns >= 2
-      const reply = (res && res.reply) || (done ? LOCAL_DIG_WRAP : LOCAL_DIG_FOLLOWUP)
-      digHistory.current.push({ from: 'coach', text: reply })
-      await addCoach(reply, 700)
-      if (done) await finishDig()
-    } finally {
-      digBusy.current = false
-    }
-  }
-
-  // Everything the user said in the dig becomes the "extra" context that the
-  // dream story and roadmap are grounded in. Idempotent — the first caller
-  // wins (Skip double-taps and racing turns are no-ops), and the shared input
-  // is cleared so a half-typed dig answer never pre-fills the goal box.
-  const finishDig = async (skipped = false) => {
-    if (digDone.current) return
-    digDone.current = true
-    setInput('')
-    const said = digHistory.current.filter((m) => m.from === 'user').map((m) => m.text).join(' · ')
-    data.current = { ...data.current, extra: said }
+  const submitFuture = async (future) => {
+    data.current = { ...data.current, future }
+    addUser('Mapped where I want to go')
+    // Aim the example goals at the domains where change is most wanted —
+    // desired-future importance crossed with today's reality.
+    const { answers, satisfaction } = deriveDomainSignals(data.current.current, future)
+    setExampleGoals(buildExampleGoals(leverageAreas(answers, satisfaction, 2)))
     setStep('goal')
-    if (skipped) addUser('Skip ahead →')
-    await addCoach(COACH_MESSAGES.default.goalPrompt, 900)
+    await addCoach(COACH_MESSAGES.default.goalPrompt, 1000)
   }
 
   const submitGoal = async () => {
@@ -240,23 +189,44 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
     setTimeout(async () => {
       clearInterval(interval)
       setProgress(100)
-      const { name, age, gender, answers, satisfaction, extra, goal } = data.current
+      const { name, age, gender, current, future, goal } = data.current
       const now = new Date().toISOString()
       const goalTitle = actionableTitle(goal)
+      const { answers, satisfaction } = deriveDomainSignals(current, future)
+      const focus = dreamFocus(answers, satisfaction)
 
-      // Framing signals from the intake: does this person run on impact-on-
-      // others or on personal success? And which parts of life hurt today?
-      const othersRx = /famil|kid|child|son|daughter|partner|wife|husband|girlfriend|boyfriend|friend|people|others|help|impact|communit|parent|mom|dad|team/i
-      const focus = answers.relationships === 3 || othersRx.test(`${extra} ${goal}`) ? 'others' : 'self'
-      const pains = DREAM_QUESTIONS
-        .filter((q) => (answers[q.key] ?? 0) >= 2 && (satisfaction[q.key] ?? 0) < 0)
-        .map((q) => q.short)
+      // Their own words from the intake notes — doubles as the profile's
+      // dreamDescription, so every downstream consumer keeps working.
+      const noteLines = []
+      CURRENT_QUESTIONS.forEach((q) => {
+        const n = (current?.[q.key]?.note || '').trim()
+        if (n) noteLines.push(`${q.label} (today): ${n}`)
+      })
+      FUTURE_QUESTIONS.forEach((q) => {
+        const n = (future?.[q.key]?.note || '').trim()
+        if (n) noteLines.push(`${q.label}: ${n}`)
+      })
+      const extra = noteLines.join('\n').slice(0, 1200)
+
+      // Full grounding for the AI calls: both sections' ratings + notes, so the
+      // future-vision and roadmap grow out of their REAL starting point.
+      const fmt = (qs, map) => qs.map((q) => {
+        const e = map?.[q.key] || {}
+        const note = (e.note || '').trim()
+        return `- ${q.label}: ${e.rating || '?'} of 4${note ? ` — "${note}"` : ''}`
+      })
+      const situation = [
+        'Where they are today (1 = very low, 4 = very strong):',
+        ...fmt(CURRENT_QUESTIONS, current),
+        "Where they're going (1 = not important, 4 = core desire):",
+        ...fmt(FUTURE_QUESTIONS, future),
+      ].join('\n').slice(0, 2000)
 
       // Personalized dream-life reading from Claude, built from THIS user's own
       // dream/goal. Falls back to the local template if the API is unavailable.
       let dreamStory
       try {
-        dreamStory = await generateDreamLifeStory({ name, goal, goalTitle, extra, tone, focus, pains })
+        dreamStory = await generateDreamLifeStory({ name, goal, goalTitle, extra, tone, focus, situation })
       } catch (e) {
         console.warn('[Onboarding] AI dream story failed, using local fallback:', e?.message)
       }
@@ -270,18 +240,14 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
       // upgrader specializes later) rather than ever showing a vague goal.
       let goals = generateGoals(goal, answers, extra)
       const localPrimaryCat = goals[0].category
-      // Supporting-goal areas by LEVERAGE: what they care about most, weighted
-      // by how unhappy they are with it today — not just raw interest.
-      const domains = rankLeverage(answers, satisfaction)
-        .filter((r) => r.key !== localPrimaryCat)
+      const domains = Object.entries(answers || {})
+        .filter(([k, v]) => v >= 2 && k !== localPrimaryCat)
+        .sort((a, b) => b[1] - a[1])
         .slice(0, 2)
-        .map((r) => ({
-          key: r.key,
-          label: `${(DREAM_QUESTIONS.find((q) => q.key === r.key) || {}).label || r.key}${r.satisfaction < 0 ? ' — they are unhappy with this today' : ''}`,
-        }))
+        .map(([k]) => ({ key: k, label: (DREAM_QUESTIONS.find((q) => q.key === k) || {}).label || k }))
       try {
         const [ai, specs] = await Promise.all([
-          generateRoadmap({ name, rawGoal: goal, extra, tone }),
+          generateRoadmap({ name, rawGoal: goal, extra, tone, situation }),
           generateSupportingGoals({ name, primaryGoal: goal, extra, domains, tone }),
         ])
         const aiPrimary = normalizeAiGoal(ai, goal, extra, 'goal-primary')
@@ -314,6 +280,8 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
         coachName: 'Nova',
         dreamAnswers: answers,
         dreamSatisfaction: satisfaction,
+        currentState: current,
+        desiredFuture: future,
         additionalInfo: extra,
         dreamDescription: extra,
         primaryGoalRaw: goal,
@@ -374,12 +342,39 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
           {isTyping && <TypingDots />}
 
           {!isTyping && step === 'intake' && <IntakeForm onSubmit={submitIntake} askAccount={!hasAccount} />}
-          {!isTyping && step === 'survey' && <DreamSurvey onSubmit={submitSurvey} />}
-          {/* During the dig chat, a quiet way past it — answers so far still count. */}
-          {!isTyping && step === 'dig' && (
-            <Pressable onPress={() => finishDig(true)} style={{ alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 14 }}>
-              <Text style={{ fontFamily: F.medium, fontSize: 12, color: C.faint }}>Skip ahead →</Text>
-            </Pressable>
+          {!isTyping && step === 'current' && (
+            <IntakeSection
+              kicker="WHERE I AM · HOW STRONG IS EACH TODAY?"
+              questions={CURRENT_QUESTIONS}
+              levels={CURRENT_LEVELS}
+              noteHint="Add context (optional)"
+              onSubmit={submitCurrent}
+            />
+          )}
+          {!isTyping && step === 'future' && (
+            <IntakeSection
+              kicker="WHERE I'M GOING · HOW MUCH DOES EACH MATTER?"
+              questions={FUTURE_QUESTIONS}
+              levels={DESIRE_LEVELS}
+              noteHint="Describe what you want (optional)"
+              onSubmit={submitFuture}
+            />
+          )}
+
+          {/* Example goals — tap to prefill, edit, then send. The judgeGoal gate
+              still applies to whatever is actually submitted. */}
+          {!isTyping && step === 'goal' && exampleGoals.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {exampleGoals.map((ex) => (
+                <Pressable
+                  key={ex}
+                  onPress={() => setInput(ex)}
+                  style={{ borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8, backgroundColor: C.violetFill07, borderWidth: 1, borderColor: C.lineMid }}
+                >
+                  <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: C.ink2 }}>{ex}</Text>
+                </Pressable>
+              ))}
+            </View>
           )}
 
           {step === 'tone' && !toneSelected && (
@@ -420,14 +415,14 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
           )}
         </ScrollView>
 
-        {/* Bottom input — the dig chat and the goal step both talk to Nova here */}
-        {(step === 'goal' || step === 'dig') && (
+        {/* Bottom input — only for the dream/goal step */}
+        {step === 'goal' && !isTyping && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 28 }}>
             <TextInput
               value={input}
               onChangeText={setInput}
-              onSubmitEditing={step === 'dig' ? submitDig : submitGoal}
-              placeholder={step === 'dig' ? 'Tell Nova...' : 'Your most important goal...'}
+              onSubmitEditing={submitGoal}
+              placeholder="Your biggest dream or goal..."
               placeholderTextColor={C.faint2}
               autoFocus
               autoComplete="off"
@@ -436,7 +431,7 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
               returnKeyType="send"
               style={inputStyle}
             />
-            <SendButton active={!!input.trim()} onPress={step === 'dig' ? submitDig : submitGoal} />
+            <SendButton active={!!input.trim()} onPress={submitGoal} />
           </View>
         )}
       </View>
@@ -554,100 +549,70 @@ function IntakeForm({ onSubmit, askAccount }) {
   )
 }
 
-// ── Life survey: 8 areas × (how much it matters + happy with it today?) ──────
-// Two personal questions per area. Importance finds what they want; today's
-// satisfaction finds where change is overdue — together they locate the
-// highest-leverage places to build (and keep the dream grounded in THEIR life).
-function DreamSurvey({ onSubmit }) {
-  const [answers, setAnswers] = useState({})
-  const [satisfaction, setSatisfaction] = useState({})
-  const [warn, setWarn] = useState(false)
-  const allAnswered = DREAM_QUESTIONS.every(
-    (q) => answers[q.key] !== undefined && (answers[q.key] === 0 || satisfaction[q.key] !== undefined),
-  )
+// ── Intake sections: 8 questions × (1–4 rating + optional note) ──────────────
+// One component serves both "Where I Am" (CURRENT_LEVELS: how present each is
+// today) and "Where I'm Going" (DESIRE_LEVELS: how much each matters). Notes
+// are the free-text depth the future-vision draws on.
+function IntakeSection({ kicker, questions, levels, noteHint, onSubmit }) {
+  const [ratings, setRatings] = useState({})
+  const [notes, setNotes] = useState({})
+  const allRated = questions.every((q) => ratings[q.key] !== undefined)
 
-  const pick = (key, v) => {
-    if (v === 3) {
-      const others = Object.entries(answers).filter(([k, val]) => val === 3 && k !== key).length
-      if (others >= MAX_EVERYTHING) {
-        setWarn(true)
-        return
-      }
-    }
-    setWarn(false)
-    setAnswers((a) => ({ ...a, [key]: v }))
+  const submit = () => {
+    const out = {}
+    questions.forEach((q) => {
+      out[q.key] = { rating: ratings[q.key], note: (notes[q.key] || '').trim() }
+    })
+    onSubmit(out)
   }
 
   return (
     <View style={cardStyle}>
-      <Text style={cardKicker}>YOUR LIFE, HONESTLY · WHAT MATTERS &amp; HOW IT FEELS TODAY</Text>
-      <View style={{ gap: 20, marginTop: 4 }}>
-        {DREAM_QUESTIONS.map((q) => (
+      <Text style={cardKicker}>{kicker}</Text>
+      <View style={{ gap: 16, marginTop: 4 }}>
+        {questions.map((q, qi) => (
           <View key={q.key}>
-            <Text style={{ fontFamily: F.medium, fontSize: 13.5, color: C.ink2, marginBottom: 8 }}>
-              {q.emoji} {q.q || q.label}
-            </Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 13.5, color: C.ink2, marginBottom: 8 }}>{q.label}</Text>
             <View style={{ flexDirection: 'row', gap: 6 }}>
-              {INTEREST_LEVELS.map((lvl) => {
-                const on = answers[q.key] === lvl.v
+              {levels.map((lvl) => {
+                const on = ratings[q.key] === lvl.v
                 return (
                   <Pressable
                     key={lvl.v}
-                    onPress={() => pick(q.key, lvl.v)}
+                    onPress={() => setRatings((r) => ({ ...r, [q.key]: lvl.v }))}
                     style={{
                       flex: 1,
                       borderRadius: 10,
-                      paddingVertical: 9,
+                      paddingVertical: 8,
                       alignItems: 'center',
                       backgroundColor: on ? 'rgba(245,158,11,0.16)' : C.violetFill07,
                       borderWidth: 1,
                       borderColor: on ? C.amber : C.lineMid,
                     }}
                   >
-                    <Text style={{ fontFamily: on ? F.semibold : F.body, fontSize: 10.5, color: on ? C.amber : C.dim, textAlign: 'center' }}>
+                    <Text style={{ fontFamily: on ? F.bold : F.semibold, fontSize: 12.5, color: on ? C.amber : C.dim }}>{lvl.v}</Text>
+                    <Text style={{ fontFamily: on ? F.semibold : F.body, fontSize: 9.5, color: on ? C.amber : C.faint, textAlign: 'center', marginTop: 1 }}>
                       {lvl.label}
                     </Text>
                   </Pressable>
                 )
               })}
             </View>
-            {/* Satisfaction only matters for areas that matter — hidden on "Not for me". */}
-            {answers[q.key] !== undefined && answers[q.key] > 0 && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                <Text style={{ flex: 1, fontFamily: F.body, fontSize: 12, color: C.faint }}>{q.satQ || 'Happy with this today?'}</Text>
-                <View style={{ flexDirection: 'row', gap: 5 }}>
-                  {SAT_LEVELS.map((lvl) => {
-                    const on = satisfaction[q.key] === lvl.v
-                    const tint = lvl.v > 0 ? C.green : lvl.v < 0 ? '#ef4444' : C.violet
-                    return (
-                      <Pressable
-                        key={lvl.v}
-                        onPress={() => setSatisfaction((s) => ({ ...s, [q.key]: lvl.v }))}
-                        style={{
-                          borderRadius: 999,
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          backgroundColor: on ? tint + '26' : C.violetFill07,
-                          borderWidth: 1,
-                          borderColor: on ? tint : C.lineMid,
-                        }}
-                      >
-                        <Text style={{ fontFamily: on ? F.semibold : F.body, fontSize: 11, color: on ? tint : C.dim }}>{lvl.label}</Text>
-                      </Pressable>
-                    )
-                  })}
-                </View>
-              </View>
+            <TextInput
+              value={notes[q.key] || ''}
+              onChangeText={(t) => setNotes((n) => ({ ...n, [q.key]: t }))}
+              placeholder={noteHint}
+              placeholderTextColor={C.faint2}
+              autoComplete="off"
+              style={[fieldInput, { marginTop: 8, paddingVertical: 9, fontSize: 13 }]}
+            />
+            {qi < questions.length - 1 && (
+              <View style={{ height: 1, backgroundColor: 'rgba(167,139,250,0.1)', marginTop: 16 }} />
             )}
           </View>
         ))}
       </View>
-      {warn && (
-        <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: C.amber, marginTop: 14, textAlign: 'center' }}>
-          Only two can be “It’s everything” — pick the two that matter most.
-        </Text>
-      )}
-      <SubmitBar label={allAnswered ? 'Continue' : 'Answer every area to continue'} disabled={!allAnswered} onPress={() => onSubmit(answers, satisfaction)} />
+      <SubmitBar label={allRated ? 'Continue' : 'Rate all 8 to continue'} disabled={!allRated} onPress={submit} />
     </View>
   )
 }

@@ -289,40 +289,68 @@ const TONE_DESCRIPTIONS = {
   gentle: 'Warm, supportive, patient, and understanding.',
 }
 
-// Personalized "dream life" reading — a cinematic, second-person narrative of the
-// future the user is building, grounded in THEIR own stated dream/goal.
-export async function generateDreamLifeStory({ name, goal, goalTitle, extra, tone = 'default', focus = 'self', pains = [] }) {
+// Personalized "dream life" reading — the FUTURE-VISION that anchors the whole
+// app. Cinematic, emotionally resonant, identity-based, second person. Built
+// from the full two-section intake: `situation` carries their Where-I-Am and
+// Where-I'm-Going ratings + notes (reality, desired identity, emotional
+// drivers, constraints, values); `focus` steers whose life the win transforms
+// (others / self / balanced).
+export async function generateDreamLifeStory({ name, goal, goalTitle, extra, tone = 'default', focus = 'balanced', situation = '' }) {
   const firstName = (name || '').split(' ')[0] || 'friend'
   const dream = [goal, extra].filter((s) => s && s.trim()).join(' — ')
-  // What the intake says they're centered on: the people around them, or their
-  // own success — the story leans whichever way THEY do.
   const focusLine = focus === 'others'
-    ? 'Their intake shows they are motivated by PEOPLE — family, relationships, the lives they touch. Center the story on the impact this life has on the people they love: who is beside them, who they can now show up for, provide for, and inspire.'
-    : 'Their intake shows they are motivated by PERSONAL success. Center the story on what THEY have built and become: the mastery, the freedom, the pride of having done it.'
-  const painsLine = pains.length
-    ? `\nToday they are NOT satisfied with: ${pains.join(', ')}. Show those exact parts of life transformed — the contrast between today's frustration and this future is the emotional core.`
-    : ''
-  const prompt = `You are ${firstName}'s personal life coach. Write a vivid, emotional "dream life" reading addressed directly to ${firstName} as "you".
+    ? '\nEmphasize the impact of their success ON THE PEOPLE around them — what this future means for their family, friends, and community, and how it feels to give them that.'
+    : focus === 'self'
+      ? '\nEmphasize personal achievement, mastery, and recognition — the quiet pride of having built this themselves.'
+      : '\nBalance personal achievement with what their success means for the people around them.'
+  const prompt = `You are ${firstName}'s personal life coach. Write a vivid, emotionally resonant future-vision addressed directly to ${firstName} as "you" — the emotional anchor they will return to throughout their journey.
 
-Base it entirely on the dream THEY described — do not invent a generic dream:
-Their stated goal/dream: "${dream || goalTitle || goal}"
-${focusLine}${painsLine}
+Their single biggest dream, in their own words: "${dream || goalTitle || goal}"${situation && situation.trim() ? `\n\nTheir full intake — where life stands today and where they want to go (ratings 1-4 plus their own notes). Read it for their emotional drivers, their constraints, their values, and the identity they want to step into:\n${situation.trim()}` : ''}
 
-Describe, in cinematic present tense, what their life looks and feels like once this dream is real — specific to this exact dream (e.g. if their goal is to make art, paint the life of a working artist: the studio, the work, the recognition, how it feels). Make it feel inevitable and earned.
+Describe, in cinematic present tense, what their life looks and feels like once this dream is real — specific to this exact dream, never generic. Make it IDENTITY-BASED: this is about who they have BECOME, not just what they have. Weave in what their ratings and notes reveal — the areas they said are weakest today transformed, the things they said matter most delivered, honoring the constraints they named. Make it feel inevitable and earned — REALISTIC AND REACHABLE from where they are today, built step by step, never so grand it reads as fantasy. It should feel like THEIR life a few years out, not a lottery win. Anchor at least one concrete detail to something they actually wrote.${focusLine}
 
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
 Rules:
-- 2 to 3 short paragraphs, separated by a blank line.
+- 1 to 2 paragraphs, separated by a blank line.
 - Second person ("you"). No greeting, no sign-off, no preamble, no quotation marks around the whole thing.
 - Concrete and sensory, not vague platitudes.
-- REALISTIC: this must read as an ambitious-but-reachable version of THEIR life, not a fantasy. No mansions, fame, or millions unless they explicitly asked for them — the reader should think "I could actually get there".
-- Flawless grammar, spelling, and punctuation — proofread the final text.
 - Plain prose only — NO markdown, no asterisks or underscores for emphasis, no formatting characters.
 Return ONLY the story text.`
 
   const text = await callClaude(prompt, 700)
   return (text || '').trim()
+}
+
+// One short deep-dive question for a leverage life area — Nova digging into what
+// the user would change there and why it matters, grounded in their survey
+// ratings and any earlier exchanges. Returns the question text only; THROWS on
+// any API/parse failure (the caller has local fallback questions).
+// area = { key, label, importance, satisfaction }; priorQA = [{ q, a }].
+export async function dreamDeepDiveQuestion({ name = '', area, priorQA = [], tone = 'default' }) {
+  const firstName = (name || '').split(' ')[0] || 'friend'
+  const importanceWords = ['not important to them', 'a little important to them', 'very important to them', 'everything to them']
+  const satisfactionWords = { '-1': 'unhappy with it today', 0: 'neutral about it today', 1: 'happy with it today' }
+  const prior = priorQA
+    .filter((x) => x && x.q && x.a)
+    .map((x) => `Q: ${x.q}\nA: ${x.a}`)
+    .join('\n')
+  const prompt = `You are Nova, ${firstName}'s coach inside NorthStar. You're having a short get-to-know-you conversation before building their roadmap.
+
+The life area to explore: ${area.label}
+How much it matters to them: ${importanceWords[area.importance] || importanceWords[2]}
+How they feel about it right now: ${satisfactionWords[area.satisfaction] ?? satisfactionWords[0]}
+${prior ? `What you've already asked, and what they said:\n${prior}\n` : ''}
+Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
+
+Write ONE short question for ${firstName} — one sentence, warm, personal, second person — digging into what they would change about this area of their life and what's standing in the way. Ground it in how they said they feel about it today${prior ? ', build on their earlier answers, and never repeat a question you already asked' : ''}. Be specific to this area, not generic.
+
+Return ONLY the question text — no JSON, no quotes, no preamble.`
+
+  const text = await callClaude(prompt, 200)
+  const question = (text || '').trim().replace(/^["'“‘]+|["'”’]+$/g, '').trim()
+  if (!question) throw new Error('Empty deep-dive question')
+  return question
 }
 
 // Pull the first JSON value (object or array) out of a model response, tolerating
@@ -342,21 +370,28 @@ function extractJson(text) {
 const GOAL_CATEGORIES = ['career', 'health', 'wealth', 'relationships', 'creative', 'travel', 'mindset', 'lifestyle']
 
 // Full roadmap for the user's PRIMARY goal, generated by Claude from their own
-// words. Returns one goal with an actionable title, a category, three timed
-// milestones (3/6/12 months) each with three concrete stepping stones, and a few
-// daily actions. The shape mirrors what aiEngine.normalizeAiGoal expects.
-export async function generateRoadmap({ name, rawGoal, extra = '', tone = 'default', context = '' }) {
+// words. Returns one goal with an actionable title, a category, a total
+// timeframeMonths, three timed milestones scaled to that timeframe (each with
+// three concrete stepping stones), and a few daily actions. The shape mirrors
+// what aiEngine.normalizeAiGoal expects.
+export async function generateRoadmap({ name, rawGoal, extra = '', tone = 'default', context = '', situation = '' }) {
   const firstName = (name || '').split(' ')[0] || 'they'
   const dream = [rawGoal, extra].filter((s) => s && s.trim()).join(' — ')
 
   const prompt = `You are ${firstName}'s personal life coach. Turn their goal into a concrete, achievable roadmap.
 
-Their goal, in their own words: "${dream || rawGoal}"${context && context.trim() ? `\nIMPORTANT context from them — use it to make the roadmap relevant and to correct any earlier misunderstanding, but do NOT copy it into the title: "${context.trim()}"` : ''}
+Their goal, in their own words: "${dream || rawGoal}"${context && context.trim() ? `\nIMPORTANT context from them — use it to make the roadmap relevant and to correct any earlier misunderstanding, but do NOT copy it into the title: "${context.trim()}"` : ''}${situation && situation.trim() ? `\nTheir current life situation — what they said they want to change. The roadmap must start from where they actually are, not from a blank slate:\n${situation.trim()}` : ''}
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
-Build a roadmap with THREE milestones. Default horizons are 3 months, 6 months, and 12 months — but if THEIR goal states its own deadline ("in 6 months", "by June", "this year"), scale the three checkpoints to fit THAT deadline instead (e.g. "6 weeks" / "3 months" / "6 months") so the final milestone lands exactly when they said. Each milestone has exactly THREE stepping stones — the smaller actions that get them there.
+First choose "timeframeMonths" — the SHORTEST realistic total timeframe in months (integer 1-24) for THIS exact goal. Do NOT default to 12: "run a 5k" is ~3 months, "read 12 books" ~12, "save $500" maybe 2 — size it to the actual work. If THEIR words state a deadline ("in 6 months", "by June", "this year"), timeframeMonths must match it exactly.
 
-Every milestone must be SMART — Specific (names the concrete noun, artifact, or event from THIS goal), Measurable (a number or a condition you could verify as done), Achievable (reachable from their current situation), Relevant (directly advances the stated goal), and Time-bound (fits its horizon). If a milestone fails any of the five, rewrite it before answering.
+Then build a roadmap with THREE milestones whose horizons divide that timeframe sensibly — roughly a quarter, half, and the full timeframe (e.g. a 6-month goal gets "6 weeks" / "3 months" / "6 months") — so the final milestone lands exactly when the goal is done. Each milestone has exactly THREE stepping stones — the smaller actions that get them there.
+
+Apply the SMART framework deliberately — the goal title and every milestone must be:
+- Specific and Measurable: a concrete noun, number, or artifact from THIS goal (see the SPECIFICITY TEST below).
+- Achievable: realistically reachable in the time given (see the TIMELINE RULES below).
+- Relevant: tied to ${firstName}'s own words and situation above — never a template goal.
+- Time-bound: every milestone carries its horizon, and the whole plan fits timeframeMonths.
 
 TIMELINE RULES — the plan must make sense as a schedule, not just a list:
 - The three milestones are a progression: the first builds the foundation, the second is measurable proof of being roughly halfway, and the FINAL milestone IS the goal achieved — its title states the goal's success condition, verifiably done.
@@ -373,10 +408,11 @@ Return ONLY this JSON, no prose, no code fences:
 {
   "title": "<short, punchy goal title in Title Case — aim for 2–5 words, ~40 characters MAX, no leading 'I want to'>",
   "category": "<one of: ${GOAL_CATEGORIES.join(', ')}>",
+  "timeframeMonths": <integer 1-24 — the SHORTEST realistic total timeframe for THIS goal; honor any deadline in their own words>,
   "milestones": [
-    { "horizon": "<first checkpoint, e.g. 3 months>", "title": "<specific outcome>", "steps": [{ "label": "<2-3 words>", "detail": "<full verb-first action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] },
-    { "horizon": "<second checkpoint, e.g. 6 months>", "title": "<specific outcome>", "steps": [{ "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] },
-    { "horizon": "<final checkpoint, e.g. 12 months>", "title": "<the goal achieved, verifiable>", "steps": [{ "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] }
+    { "horizon": "<first checkpoint, ~quarter of the timeframe>", "title": "<specific outcome>", "steps": [{ "label": "<2-3 words>", "detail": "<full verb-first action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] },
+    { "horizon": "<second checkpoint, ~half of the timeframe>", "title": "<specific outcome>", "steps": [{ "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] },
+    { "horizon": "<final checkpoint, the full timeframe>", "title": "<the goal achieved, verifiable>", "steps": [{ "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }, { "label": "<2-3 words>", "detail": "<action>" }] }
   ],
   "dailyActions": ["<small daily action>", "<small daily action>", "<small daily action>"]
 }`
@@ -484,44 +520,6 @@ Return ONLY a JSON array of ${count} strings, e.g. ["Outline the intro", "Draft 
   return steps
 }
 
-// One turn of Nova's onboarding "dig" chat — the short conversation after the
-// life-areas rating that turns vague wants into the SPECIFIC places the user
-// is dissatisfied and truly wants change, then tells them it's buildable.
-// `areas` = [{ label, satisfaction }] highest-leverage first; `history` = the
-// dig messages so far [{ from: 'coach'|'user', text }]. Returns { reply, done }.
-// Fails open: callers fall back to local questions when this throws.
-export async function dreamDig({ name = '', tone = 'default', areas = [], history = [] }) {
-  const firstName = (name || '').split(' ')[0] || 'friend'
-  const userTurns = history.filter((m) => m.from === 'user').length
-  const areaList = areas
-    .map((a) => `- ${a.label}${a.satisfaction < 0 ? ' (they are NOT happy with this today)' : a.satisfaction > 0 ? ' (already going well)' : ' (feels neutral today)'}`)
-    .join('\n')
-  const transcript = history.map((m) => `${m.from === 'user' ? firstName : 'You'}: ${m.text}`).join('\n')
-
-  const prompt = `You are Nova, ${firstName}'s personal life coach, mid-onboarding. They just rated the parts of life that matter to them and how satisfied they are with each today:
-${areaList}
-
-Your job in this short chat: pinpoint where they MOST want change and what "better" concretely looks like for them — personal and specific, never generic. Ask about their actual situation, e.g. "What would you do if you weren't doing your current job?", "What does your money stress look like day to day?", "What would a great week look like?".
-
-Rules:
-- ONE question per turn, 1–2 sentences, warm and direct. No lists, no preamble.
-- React briefly to what they just said before asking the next question.
-- After their ${userTurns >= 2 ? 'answer below — now WRAP UP' : 'second answer, wrap up'}: reflect back the specific change they want in one sentence, tell them plainly that it is buildable from where they are today, and set done=true. The wrap-up must feel earned and realistic — grounded in what they said, never hype.
-- Flawless grammar and spelling.
-
-Conversation so far:
-${transcript || '(you have not asked anything yet)'}
-
-Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
-
-Return ONLY JSON, no prose: {"reply": "<your next message>", "done": <true if you just wrapped up, else false>}`
-
-  const res = await callClaude(prompt, 300)
-  const parsed = extractJson(res)
-  if (!parsed || typeof parsed.reply !== 'string' || !parsed.reply.trim()) throw new Error('bad dig reply')
-  return { reply: parsed.reply.trim(), done: !!parsed.done || userTurns >= 2 }
-}
-
 // Specific, actionable SUPPORTING goals for the other life areas a user cares
 // about (from the onboarding survey), grounded in their dream + primary goal —
 // so the roadmap is never padded with vague template goals. Returns
@@ -536,7 +534,7 @@ export async function generateSupportingGoals({ name = '', primaryGoal = '', ext
 They also care about these other life areas and want ONE concrete goal in each:
 ${domainList}
 
-For each area, write ONE specific, actionable goal for ${firstName} — something real they could start this week and measure, as a short goal title (Title Case, no leading "I want to"). Make it SMART: Specific (a number, a named habit, a shipped thing, or a concrete milestone), Measurable, Achievable from their current situation, Relevant to their dream, and Time-bound where natural ("in 90 days", "by summer"). NEVER vague — do NOT write things like "Build a career you're proud of", "Get healthier", "Reach financial freedom", or "Find balance". Where an area is marked as one they're unhappy with today, aim the goal at fixing that specific dissatisfaction.
+For each area, write ONE specific, actionable goal for ${firstName} — something real they could start this week and measure, as a short goal title (Title Case, no leading "I want to"). Make each goal SMART: it MUST contain a measurable target — a number, a frequency, or a named deliverable (e.g. "Run 3 Times a Week", "Save $3,000", "Ship a Portfolio Site") — and be realistically achievable within 12 months by a busy person. Tie it to their dream where it fits. NEVER vague — do NOT write things like "Build a career you're proud of", "Get healthier", "Reach financial freedom", or "Find balance".
 
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
@@ -822,6 +820,7 @@ export default {
   suggestStepsForMilestone,
   generateDailyActionsForMilestone,
   generateDreamLifeStory,
+  dreamDeepDiveQuestion,
   generateRoadmap,
   generateSupportingGoals,
   generateSprintPlan,
