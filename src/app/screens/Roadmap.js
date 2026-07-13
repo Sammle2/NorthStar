@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Svg, { Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-native-svg'
-import { RotateCcw } from 'lucide-react-native'
+import { ChevronRight, RotateCcw } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
 import { goalDurationMonths, recomputeGoal, shortStepLabel } from '../aiEngine'
@@ -110,6 +110,17 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
     const i = flatSteps.findIndex((s) => !s.done)
     return i === -1 ? flatSteps.length : i
   }, [flatSteps])
+  // The single next action on THIS path — the first incomplete stepping stone,
+  // in order (same frontier the road enforces). Drives the "Next up" line.
+  const nextAction = useMemo(() => {
+    if (!goal) return null
+    for (const m of goal.milestones || []) {
+      for (const s of m.steps || []) {
+        if (!s.completed) return { milestone: m, step: s }
+      }
+    }
+    return null
+  }, [goal, profile])
   // 'done' = completed & locked, 'last' = last completed (can undo), 'current' =
   // next one to do, 'locked' = ahead of the frontier (not yet reachable).
   const stepStatusOf = (mId, sId) => {
@@ -152,10 +163,19 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
             </Pressable>
           )}
         </View>
-        {goal && pct < 100 && (
-          <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginTop: 4 }}>
-            Tap a stepping stone as you complete it. Edit milestones with Redo.
-          </Text>
+        {/* NEXT UP — the one action to take next on THIS path, pinned under the
+            header so the immediate move is always visible without scanning the
+            whole road. One line, ellipsized; tap to see it in the detail card.
+            Occupies the same slot the old generic hint did — no extra rows. */}
+        {goal && pct < 100 && nextAction && (
+          <Pressable
+            onPress={() => setSelected({ horizon: `Next up · ${nextAction.milestone.horizon}`, title: nextAction.step.title, detail: 'Your next step on this path — tap its glowing stone on the road to complete it.', lit: false, accent, current: true })}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, alignSelf: 'flex-start', maxWidth: '100%', borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11, backgroundColor: accent + '14', borderWidth: 1, borderColor: accent + '40' }}
+          >
+            <Text numberOfLines={1} style={{ fontFamily: F.bold, fontSize: 9, color: accent, letterSpacing: 1.2, flexShrink: 0 }}>NEXT UP</Text>
+            <Text numberOfLines={1} style={{ flexShrink: 1, fontFamily: F.medium, fontSize: 12, color: C.ink2 }}>{nextAction.step.title || nextAction.step.label}</Text>
+            <ChevronRight size={13} color={accent} strokeWidth={2.4} />
+          </Pressable>
         )}
         {/* Goal complete → Nova asks what's next (the input lives in Redo → Draft for me). */}
         {goal && pct >= 100 && onRedoGoal && (
