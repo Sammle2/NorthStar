@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Send, Settings } from 'lucide-react-native'
+import { ArrowLeft, History, Send, Settings, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import { MessageBubble, PlanCard, TypingDots } from '../components/ChatBits'
@@ -31,6 +31,9 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
   const [showToneMenu, setShowToneMenu] = useState(false)
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  // Past-chat history: the archive list overlay, and the one session being read.
+  const [showHistory, setShowHistory] = useState(false)
+  const [viewingSession, setViewingSession] = useState(null)
   const profileRef = useRef(profile)
   profileRef.current = profile
 
@@ -75,7 +78,17 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
       : (COACH_MESSAGES[prof.coachTone]?.intro || COACH_MESSAGES.default.intro).replace('{name}', firstName)
     const fresh = [{ id: '0', from: 'coach', text: reintro, time: nowTime() }]
     setMessages(fresh)
-    onUpdate((p) => ({ ...p, coachHistory: fresh, coachLastChatAt: new Date().toISOString() }))
+    // Archive the ENDED session so its full transcript stays viewable in History
+    // (distillation only keeps the gist). Keep the last 20 sessions so the synced
+    // profile blob stays bounded.
+    const endedHasUser = saved.some((m) => m.from === 'user')
+    onUpdate((p) => {
+      const archive = Array.isArray(p.coachArchive) ? p.coachArchive : []
+      const coachArchive = endedHasUser
+        ? [...archive, { id: `sess_${Date.now()}`, endedAt: new Date().toISOString(), messages: saved }].slice(-20)
+        : archive
+      return { ...p, coachArchive, coachHistory: fresh, coachLastChatAt: new Date().toISOString() }
+    })
 
     // Hand the ENDED session off to long-term memory in the background — only
     // the part after the last distillation watermark, so nothing is processed
@@ -260,6 +273,15 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
     onUpdate((prof) => ({ ...prof, coachTone: tone, coachHistory: next.slice(-60), coachLastChatAt: new Date().toISOString() }))
   }
 
+  // Past chats — archived ended sessions, newest first, for the History view.
+  const archive = [...(profile.coachArchive || [])].reverse()
+  const sessionDateLabel = (iso) => {
+    try {
+      const d = new Date(iso)
+      return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+    } catch { return '' }
+  }
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: C.bg }}>
       <View style={{ flex: 1, maxWidth: 600, width: '100%', alignSelf: 'center' }}>
@@ -289,7 +311,16 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
             </View>
           </View>
 
-          <View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {/* Past chats */}
+            <Pressable
+              onPress={() => { setShowHistory(true); setViewingSession(null) }}
+              hitSlop={6}
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.lineStrong }}
+            >
+              <History size={16} color={C.violet} strokeWidth={2.2} />
+            </Pressable>
+            <View>
             <Pressable
               onPress={() => setShowToneMenu((s) => !s)}
               style={{
@@ -350,6 +381,7 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
                 })}
               </View>
             )}
+            </View>
           </View>
         </View>
 
@@ -433,6 +465,54 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
             </Pressable>
           </View>
         </View>
+
+        {/* Chat history — past sessions (archived when a chat resets), read-only */}
+        {showHistory && (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: C.bg, zIndex: 100 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(167,139,250,0.1)' }}>
+              <Pressable onPress={() => (viewingSession ? setViewingSession(null) : setShowHistory(false))} hitSlop={10} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineMid }}>
+                {viewingSession ? <ArrowLeft size={18} color={C.dim} strokeWidth={2.2} /> : <X size={18} color={C.dim} strokeWidth={2.2} />}
+              </Pressable>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: F.display, fontSize: 14.5, color: C.ink, letterSpacing: 1.2 }}>{viewingSession ? 'PAST CHAT' : 'CHAT HISTORY'}</Text>
+                {viewingSession ? <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginTop: 2 }}>{sessionDateLabel(viewingSession.endedAt)}</Text> : null}
+              </View>
+            </View>
+
+            {viewingSession ? (
+              <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, gap: 16 }}>
+                {(viewingSession.messages || []).map((m) =>
+                  m.card
+                    ? <PlanCard key={m.id} card={m.card} onOpen={() => onOpenPlans && onOpenPlans(m.card.planId)} />
+                    : <MessageBubble key={m.id} from={m.from} text={m.text} time={m.time} />,
+                )}
+              </ScrollView>
+            ) : (
+              <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40 }}>
+                {archive.length === 0 ? (
+                  <View style={{ alignItems: 'center', paddingVertical: 52, paddingHorizontal: 24 }}>
+                    <History size={26} color={C.faint2} strokeWidth={1.8} />
+                    <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.faint, marginTop: 12, textAlign: 'center', lineHeight: 20 }}>No past chats yet. When a conversation wraps up, its full transcript is saved here so you can always look back.</Text>
+                  </View>
+                ) : (
+                  archive.map((s) => {
+                    const users = (s.messages || []).filter((m) => m.from === 'user')
+                    const preview = users[0]?.text || (s.messages || []).find((m) => m.text)?.text || 'Conversation'
+                    return (
+                      <Pressable key={s.id} onPress={() => setViewingSession(s)} style={{ borderRadius: 14, padding: 15, marginBottom: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.violet }}>{sessionDateLabel(s.endedAt)}</Text>
+                          <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint }}>{users.length} message{users.length === 1 ? '' : 's'}</Text>
+                        </View>
+                        <Text numberOfLines={2} style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink2, lineHeight: 19 }}>{preview}</Text>
+                      </Pressable>
+                    )
+                  })
+                )}
+              </ScrollView>
+            )}
+          </View>
+        )}
       </View>
     </KeyboardAvoidingView>
   )
