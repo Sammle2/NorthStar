@@ -114,9 +114,8 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
   useEffect(() => {
     addCoach(COACH_MESSAGES.default.welcome.replace('{coach}', 'Nova'), 800)
   }, [])
-  useEffect(() => {
-    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))
-  }, [messages, isTyping, step])
+  // No auto-scroll: the view stays put when Nova replies, so a new message never
+  // yanks the user away from the form or the line they were reading.
 
   const submitIntake = async ({ name, age, gender, username, email, password }) => {
     const capped = capName(name)
@@ -263,96 +262,111 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
     await addCoach(COACH_MESSAGES[tone].toneConfirm, 800)
     await addCoach(COACH_MESSAGES[tone].generating, 600)
 
-    let p = 0
+    const { name, age, gender, current, future, pursuing, finalGoals, refined } = data.current
+    const now = new Date().toISOString()
+    const { answers, satisfaction, focus, extra, situation } = buildIntakeContext(current, future, pursuing)
+
+    // The three commitments (post-review), elevated to overarching goals. Their
+    // joined titles are the "dream" the future-vision reads as their path.
+    const commitments = (finalGoals && finalGoals.length ? finalGoals : refined || []).slice(0, 3)
+    const goalForStory = commitments.map((r) => r.title).join('; ')
+    const goalTitle = commitments[0]?.title || actionableTitle(goalForStory)
+
+    // The progress bar tracks REAL work: it eases toward a target that only
+    // advances as each AI call actually finishes (the dream story, then one
+    // roadmap per goal), and it reaches 100% only the moment the reveal is ready
+    // — never before. Between milestones it keeps easing so it always feels alive.
+    const stepCount = commitments.length + 1 // story + one roadmap per goal
+    let doneSteps = 0
+    let target = 12
+    const bumpTarget = () => {
+      doneSteps += 1
+      target = 12 + Math.round((doneSteps / stepCount) * 82) // 12 → ~94
+    }
     const interval = setInterval(() => {
-      p = Math.min(100, p + Math.random() * 12 + 3)
-      setProgress(p)
-      if (p >= 100) clearInterval(interval)
-    }, 180)
+      setProgress((p) => {
+        const next = p + (target - p) * 0.08
+        return next > target - 0.5 ? target : next
+      })
+    }, 160)
 
-    setTimeout(async () => {
-      clearInterval(interval)
-      setProgress(100)
-      const { name, age, gender, current, future, pursuing, finalGoals, refined } = data.current
-      const now = new Date().toISOString()
-      const { answers, satisfaction, focus, extra, situation } = buildIntakeContext(current, future, pursuing)
+    // Personalized dream-life reading from Claude, built from the full intake
+    // + their three commitments. Falls back to the local template if the API
+    // is unavailable.
+    let dreamStory
+    try {
+      dreamStory = await generateDreamLifeStory({ name, goal: goalForStory, goalTitle, extra, tone, focus, situation })
+    } catch (e) {
+      console.warn('[Onboarding] AI dream story failed, using local fallback:', e?.message)
+    }
+    if (!dreamStory) dreamStory = generateDreamStory({ name, age, answers, goalTitle, extra })
+    bumpTarget() // story done
 
-      // The three commitments (post-review), elevated to overarching goals. Their
-      // joined titles are the "dream" the future-vision reads as their path.
-      const commitments = (finalGoals && finalGoals.length ? finalGoals : refined || []).slice(0, 3)
-      const goalForStory = commitments.map((r) => r.title).join('; ')
-      const goalTitle = commitments[0]?.title || actionableTitle(goalForStory)
+    // Build a roadmap for EACH commitment. Every goal is grounded in the full
+    // intake; the raw action they named is passed as context so a one-and-done
+    // becomes a stepping stone, never the goal. Nova's 3–12 month sizing wins
+    // over the roadmap's own guess. If any AI call fails, that goal falls back
+    // to a local scaffold the background upgrader specializes later — the
+    // roadmap is never left empty.
+    const goals = await Promise.all(
+      commitments.map(async (r, i) => {
+        const id = `goal-${i + 1}`
+        const tf = Math.round(Number(r.timeframeMonths))
+        const timeframeMonths = Number.isFinite(tf) ? Math.min(12, Math.max(3, tf)) : 6
+        try {
+          const ai = await generateRoadmap({
+            name,
+            rawGoal: r.title,
+            extra,
+            tone,
+            situation,
+            context: r.rootAction && r.rootAction !== r.title ? r.rootAction : '',
+          })
+          const built = normalizeAiGoal(ai, r.title, extra, id)
+          // Keep Nova's elevated, overarching title (what the user agreed to) —
+          // don't let the roadmap's own title guess pull it back to a task.
+          return { ...built, title: r.title, timeframeMonths }
+        } catch (e) {
+          console.warn('[Onboarding] roadmap failed for commitment', i + 1, e?.message)
+          return { ...buildGoal(r.title, extra, id), timeframeMonths }
+        } finally {
+          bumpTarget() // this goal's roadmap done
+        }
+      }),
+    )
 
-      // Personalized dream-life reading from Claude, built from the full intake
-      // + their three commitments. Falls back to the local template if the API
-      // is unavailable.
-      let dreamStory
-      try {
-        dreamStory = await generateDreamLifeStory({ name, goal: goalForStory, goalTitle, extra, tone, focus, situation })
-      } catch (e) {
-        console.warn('[Onboarding] AI dream story failed, using local fallback:', e?.message)
-      }
-      if (!dreamStory) dreamStory = generateDreamStory({ name, age, answers, goalTitle, extra })
+    // NOTE: identity fields (userId/email/username) are NOT set here — App.js
+    // merges this over the existing profile so the account linkage survives.
+    const profile = {
+      name,
+      age,
+      gender,
+      coachTone: tone,
+      coachName: 'Nova',
+      dreamAnswers: answers,
+      dreamSatisfaction: satisfaction,
+      currentState: current,
+      desiredFuture: future,
+      currentPursuits: pursuing,
+      commitments,
+      additionalInfo: extra,
+      dreamDescription: extra,
+      primaryGoalRaw: commitments.map((r) => r.title).join(' · '),
+      dreamStory,
+      goals,
+      nonNeg: {},
+      sprints: [],
+      streak: 0,
+      lastCheckIn: null,
+      joinedDate: now,
+      lastLongTermReview: now,
+    }
 
-      // Build a roadmap for EACH commitment. Every goal is grounded in the full
-      // intake; the raw action they named is passed as context so a one-and-done
-      // becomes a stepping stone, never the goal. Nova's 3–12 month sizing wins
-      // over the roadmap's own guess. If any AI call fails, that goal falls back
-      // to a local scaffold the background upgrader specializes later — the
-      // roadmap is never left empty.
-      const goals = await Promise.all(
-        commitments.map(async (r, i) => {
-          const id = `goal-${i + 1}`
-          const tf = Math.round(Number(r.timeframeMonths))
-          const timeframeMonths = Number.isFinite(tf) ? Math.min(12, Math.max(3, tf)) : 6
-          try {
-            const ai = await generateRoadmap({
-              name,
-              rawGoal: r.title,
-              extra,
-              tone,
-              situation,
-              context: r.rootAction && r.rootAction !== r.title ? r.rootAction : '',
-            })
-            const built = normalizeAiGoal(ai, r.title, extra, id)
-            // Keep Nova's elevated, overarching title (what the user agreed to) —
-            // don't let the roadmap's own title guess pull it back to a task.
-            return { ...built, title: r.title, timeframeMonths }
-          } catch (e) {
-            console.warn('[Onboarding] roadmap failed for commitment', i + 1, e?.message)
-            return { ...buildGoal(r.title, extra, id), timeframeMonths }
-          }
-        }),
-      )
-
-      // NOTE: identity fields (userId/email/username) are NOT set here — App.js
-      // merges this over the existing profile so the account linkage survives.
-      const profile = {
-        name,
-        age,
-        gender,
-        coachTone: tone,
-        coachName: 'Nova',
-        dreamAnswers: answers,
-        dreamSatisfaction: satisfaction,
-        currentState: current,
-        desiredFuture: future,
-        currentPursuits: pursuing,
-        commitments,
-        additionalInfo: extra,
-        dreamDescription: extra,
-        primaryGoalRaw: commitments.map((r) => r.title).join(' · '),
-        dreamStory,
-        goals,
-        nonNeg: {},
-        sprints: [],
-        streak: 0,
-        lastCheckIn: null,
-        joinedDate: now,
-        lastLongTermReview: now,
-      }
-      onComplete(profile)
-    }, 3400)
+    // Everything is ready — fill the bar to 100% and let it visibly land (the
+    // bar eases over ~1.2s) before the reveal takes over.
+    clearInterval(interval)
+    setProgress(100)
+    setTimeout(() => onComplete(profile), 1000)
   }
 
   return (
