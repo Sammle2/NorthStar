@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import Svg, { Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-native-svg'
+import Svg, { Circle, Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-native-svg'
 import { ChevronRight, RotateCcw } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
@@ -404,16 +404,39 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   )
 }
 
-// Timeline switcher — the axis runs Day 0 → the horizon (largest goal timeframe,
-// min 12mo). Each goal is a node at its timeframeMonths; the Dream star anchors
-// the far right. Tapping behaves exactly like the old chips: onSelect(g.id | 'dream').
-// Month ticks sit ABOVE the axis; goal + Dream labels stack in lanes BELOW it, so
-// goals that share a deadline (all of Max's are 12-month) read one-per-row instead
-// of piling their titles on top of each other.
-const TL_LABEL_W = 84
-const TL_LANE_H = 15
-const TL_AXIS_Y = 20
-const TL_LABEL_TOP = TL_AXIS_Y + 11
+// A tiny progress ring — a faint track with a coloured arc filled to `pct`,
+// starting at 12 o'clock. Shows how far a goal is toward the finish.
+function ProgressRing({ pct = 0, color, size = 14 }) {
+  const sw = 2
+  const r = (size - sw) / 2
+  const c = 2 * Math.PI * r
+  const p = Math.max(0, Math.min(100, pct))
+  const cxy = size / 2
+  return (
+    <Svg width={size} height={size}>
+      <Circle cx={cxy} cy={cxy} r={r} stroke={C.lineStrong} strokeWidth={sw} fill="none" />
+      {p > 0 && (
+        <Circle
+          cx={cxy} cy={cxy} r={r} stroke={color} strokeWidth={sw} fill="none"
+          strokeDasharray={`${(p / 100) * c} ${c}`}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${cxy} ${cxy})`}
+        />
+      )}
+    </Svg>
+  )
+}
+
+// Timeline switcher — a Day 0 → horizon time axis (ticks accurate), the Dream star
+// marking the finish at the far right. Each goal keeps its TRUE deadline: it's a
+// row below the axis whose right edge lands on its finish month, with a progress
+// ring showing how far it is to done and its %. Goals that share a deadline (all of
+// Max's are 12-month) line up in a tidy column under that point instead of being
+// nudged off their real position. Tapping a row selects it: onSelect(g.id | 'dream').
+const TL_AXIS_Y = 16
+const TL_ROW_TOP = 30
+const TL_ROW_H = 21
+const TL_RING = 14
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(v, hi))
 
 function TimelineSwitcher({ goals, view, onSelect }) {
@@ -421,51 +444,24 @@ function TimelineSwitcher({ goals, view, onSelect }) {
   // in a fixed 375px frame, so the window width can't be trusted.
   const [w, setW] = useState(0)
   const T = Math.max(12, ...goals.map(goalDurationMonths))
-  // Ticks above the axis. The horizon endpoint is marked by the Dream star, so we
+  // Ticks along the axis. The horizon endpoint is marked by the Dream star, so we
   // don't draw a tick that would sit underneath it.
   const ticks = [0, 3, 6, 9, 12, 18, 24].filter((m) => m < T)
-  const NODE_GAP = 26 // min spacing so two nodes never sit on top of each other
-  const rightLimit = w - 38 // keep goal nodes clear of the Dream star at the far right
-
-  // 1) Place each goal node at its true month, then de-collide left→right: any node
-  //    too close to its neighbour is pushed right; if the cluster overruns the right
-  //    limit, the whole run slides left so it still fits (same-deadline goals fan out).
-  const items = goals
-    .map((g) => ({ id: g.id, title: g.title, color: CATEGORY_COLORS[g.category] || C.amber, reached: g.progress >= 100, x0: (goalDurationMonths(g) / T) * w }))
-    .sort((a, b) => a.x0 - b.x0)
-  let prevX = -Infinity
-  items.forEach((it) => { let x = clampN(it.x0, 12, rightLimit); if (x - prevX < NODE_GAP) x = prevX + NODE_GAP; it.x = x; prevX = x })
-  const over = items.length ? Math.max(0, items[items.length - 1].x - rightLimit) : 0
-  if (over > 0) { let p = -Infinity; items.forEach((it) => { let x = clampN(it.x - over, 12, rightLimit); if (x - p < NODE_GAP) x = p + NODE_GAP; it.x = x; p = x }) }
-
-  // 2) Labels (goals + the Dream) pack into as few stacked lanes as fit without
-  //    overlapping. A label reuses the highest lane whose previous label has cleared
-  //    its left edge; otherwise it drops to a new lane. Zero horizontal collisions,
-  //    for any number of goals.
   const dreamX = w > 0 ? w - 15 : 0
-  const targets = [...items, { id: 'dream', title: 'The Dream', color: C.amber, x: dreamX }]
-  const laneEnd = []
-  targets
-    .slice()
-    .sort((a, b) => a.x - b.x)
-    .forEach((t) => {
-      const left = clampN(t.x - TL_LABEL_W / 2, 0, Math.max(0, w - TL_LABEL_W))
-      let lane = 0
-      while (lane < laneEnd.length && left < laneEnd[lane] + 6) lane++
-      t.left = left
-      t.lane = lane
-      laneEnd[lane] = left + TL_LABEL_W
-    })
-  const laneCount = Math.max(1, laneEnd.length)
-  const H = TL_LABEL_TOP + laneCount * TL_LANE_H + 2
+  // Goals ordered by deadline (then progress) — each becomes one row. The row is as
+  // wide as fits and ends on its finish month, so same-deadline goals right-align.
+  const rows = goals
+    .map((g) => ({ id: g.id, title: g.title, color: CATEGORY_COLORS[g.category] || C.amber, pct: Math.round(g.progress || 0), months: goalDurationMonths(g) }))
+    .sort((a, b) => a.months - b.months || b.pct - a.pct)
+  const rowW = clampN(w * 0.62, 140, w)
+  const H = TL_ROW_TOP + Math.max(1, rows.length) * TL_ROW_H + 2
 
   return (
     <View style={{ height: H, marginHorizontal: 24, marginTop: 6, marginBottom: 4 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
       {w > 0 && (
         <>
-          {/* Axis */}
+          {/* Time axis + ticks */}
           <View style={{ position: 'absolute', left: 0, right: 0, top: TL_AXIS_Y, height: 1, backgroundColor: C.lineStrong }} />
-          {/* Month ticks — above the axis */}
           {ticks.map((m) => (
             <React.Fragment key={m}>
               <View style={{ position: 'absolute', left: (m / T) * w, top: TL_AXIS_Y - 4, width: 1, height: 4, backgroundColor: C.lineStrong }} />
@@ -474,31 +470,27 @@ function TimelineSwitcher({ goals, view, onSelect }) {
               </Text>
             </React.Fragment>
           ))}
-          {/* Goal nodes on the axis */}
-          {items.map((it) => {
-            const on = view === it.id
-            return (
-              <Pressable key={`n-${it.id}`} onPress={() => onSelect(it.id)} hitSlop={6} style={{ position: 'absolute', left: it.x - 13, top: TL_AXIS_Y - 13, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: on ? it.color : 'transparent' }}>
-                <View
-                  style={[
-                    { width: 15, height: 15, borderRadius: 7.5, borderWidth: 2, borderColor: it.color, backgroundColor: it.reached ? it.color : C.bg, opacity: on ? 1 : 0.6 },
-                    on && { shadowColor: it.color, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
-                  ]}
-                />
-              </Pressable>
-            )
-          })}
-          {/* The Dream — the star at the far end of the axis */}
+          {/* The Dream — the finish line at the far right */}
           <Pressable onPress={() => onSelect('dream')} hitSlop={6} style={{ position: 'absolute', left: dreamX - 15, top: TL_AXIS_Y - 15, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: view === 'dream' ? C.amber : C.lineStrong }}>
             <Text style={{ fontSize: 14, color: C.amber, opacity: view === 'dream' ? 1 : 0.65 }}>✦</Text>
           </Pressable>
-          {/* Labels — one per lane below the axis, never overlapping */}
-          {targets.map((t) => {
-            const on = view === t.id
+          {/* Goal rows — one per goal, right edge on its true deadline, progress ring toward the finish */}
+          {rows.map((r, i) => {
+            const on = view === r.id
+            const x = clampN((r.months / T) * w, 8, w) // the finish month on the axis
+            const right = clampN(x, rowW, w)
+            const left = right - rowW
+            const top = TL_ROW_TOP + i * TL_ROW_H
             return (
-              <Pressable key={`l-${t.id}`} onPress={() => onSelect(t.id)} hitSlop={4} style={{ position: 'absolute', left: t.left, top: TL_LABEL_TOP + t.lane * TL_LANE_H, width: TL_LABEL_W }}>
-                <Text numberOfLines={1} style={{ fontFamily: on ? F.semibold : F.medium, fontSize: 10.5, lineHeight: 13, color: on ? t.color : C.dim, textAlign: 'center' }}>{t.title}</Text>
-              </Pressable>
+              <React.Fragment key={r.id}>
+                {/* faint drop line tying this goal to its deadline on the axis */}
+                <View style={{ position: 'absolute', left: clampN(x, 0, w - 1), top: TL_AXIS_Y, width: 1, height: top + TL_RING / 2 - TL_AXIS_Y, backgroundColor: on ? r.color + '77' : C.lineMid }} />
+                <Pressable onPress={() => onSelect(r.id)} hitSlop={4} style={{ position: 'absolute', left, top, width: rowW, height: TL_RING + 4, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                  <ProgressRing pct={r.pct} color={r.color} size={TL_RING} />
+                  <Text numberOfLines={1} style={{ flex: 1, fontFamily: on ? F.semibold : F.medium, fontSize: 11, lineHeight: 14, color: on ? r.color : C.dim }}>{r.title}</Text>
+                  <Text style={{ fontFamily: F.semibold, fontSize: 10.5, color: on ? r.color : C.faint }}>{r.pct}%</Text>
+                </Pressable>
+              </React.Fragment>
             )
           })}
         </>
