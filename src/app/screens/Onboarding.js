@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { ArrowLeft, Eye, EyeOff, Send } from 'lucide-react-native'
+import { ArrowLeft, Eye, EyeOff } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import GlowProgress from '../components/GlowProgress'
@@ -19,22 +19,17 @@ import {
   CURRENT_LEVELS,
   CURRENT_QUESTIONS,
   DESIRE_LEVELS,
-  DREAM_QUESTIONS,
   FUTURE_QUESTIONS,
-  GOAL_EXAMPLES,
-  GOAL_EXAMPLES_DEFAULT,
   actionableTitle,
-  buildSupportingGoal,
+  buildGoal,
   capName,
   deriveDomainSignals,
   dreamFocus,
   generateDreamStory,
-  generateGoals,
-  leverageAreas,
   normalizeAiGoal,
   validateGoal,
 } from '../aiEngine'
-import { generateDreamLifeStory, generateRoadmap, generateSupportingGoals, judgeGoal } from '../../services/aiService'
+import { generateDreamLifeStory, generateRoadmap, refineCommitments } from '../../services/aiService'
 
 const TONES = [
   { id: 'tough', label: 'Tough Love', desc: 'No BS, high expectations', emoji: '💪' },
@@ -46,34 +41,60 @@ const GENDERS = ['Male', 'Female', 'Prefer not to say']
 let idc = 0
 const nid = () => `m${Date.now()}_${idc++}`
 
-// Example chips for the goal step: one concrete goal from each leverage domain,
-// topped up from the defaults — "make it concrete" never faces a blank page.
-const buildExampleGoals = (areas) => {
-  const picks = []
-  for (const a of (areas || []).slice(0, 2)) {
-    const ex = (GOAL_EXAMPLES[a.key] || [])[0]
-    if (ex && !picks.includes(ex)) picks.push(ex)
-  }
-  for (const ex of GOAL_EXAMPLES_DEFAULT) {
-    if (picks.length >= 4) break
-    if (!picks.includes(ex)) picks.push(ex)
-  }
-  return picks.slice(0, 4)
+// Build the shared AI grounding from both intake sections — the ratings + notes
+// that the commitment refinement, the roadmaps, and the future-vision all draw
+// on. Also derives the dream descriptor (their strongest desires + who they want
+// to become) and the `extra` free-text that doubles as dreamDescription.
+const buildIntakeContext = (current, future) => {
+  const { answers, satisfaction } = deriveDomainSignals(current, future)
+  const focus = dreamFocus(answers, satisfaction)
+
+  const noteLines = []
+  CURRENT_QUESTIONS.forEach((q) => {
+    const n = (current?.[q.key]?.note || '').trim()
+    if (n) noteLines.push(`${q.label} (today): ${n}`)
+  })
+  FUTURE_QUESTIONS.forEach((q) => {
+    const n = (future?.[q.key]?.note || '').trim()
+    if (n) noteLines.push(`${q.label}: ${n}`)
+  })
+  const extra = noteLines.join('\n').slice(0, 1200)
+
+  const fmt = (qs, map) => qs.map((q) => {
+    const e = map?.[q.key] || {}
+    const note = (e.note || '').trim()
+    return `- ${q.label}: ${e.rating || '?'} of 4${note ? ` — "${note}"` : ''}`
+  })
+  const situation = [
+    'Where they are today (1 = very low, 4 = very strong):',
+    ...fmt(CURRENT_QUESTIONS, current),
+    "Where they're going (1 = not important, 4 = core desire):",
+    ...fmt(FUTURE_QUESTIONS, future),
+  ].join('\n').slice(0, 2000)
+
+  // A short dream anchor: who they want to become + the desires they marked
+  // as core (rating 4) — used to ground the commitment refinement and story.
+  const identity = (future?.identity?.note || '').trim()
+  const core = FUTURE_QUESTIONS
+    .filter((q) => Number(future?.[q.key]?.rating) >= 4)
+    .map((q) => q.label.replace(/^Desired /i, '').toLowerCase())
+    .slice(0, 3)
+  const dream = [identity, core.length ? `craving ${core.join(', ')}` : ''].filter(Boolean).join(' — ')
+
+  return { answers, satisfaction, focus, extra, situation, dream }
 }
 
 // Screen 2 — the Coach's first conversation: intake form (incl. picking a
 // username + email for new accounts) → "Where I Am" (8 × 1–4 + optional note)
-// → "Where I'm Going" (8 × 1–4 + optional note) → the single biggest dream
-// (validated) → tone → generate.
+// → "Where I'm Going" (8 × 1–4 + optional note) → three commitments Nova
+// elevates into overarching SMART goals → tone → generate.
 export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onBack }) {
   const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
   const [step, setStep] = useState('intake') // intake | current | future | goal | tone | generating
   const [isTyping, setIsTyping] = useState(false)
   const [toneSelected, setToneSelected] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [exampleGoals, setExampleGoals] = useState([])
-  const data = useRef({ name: '', age: '', gender: '', username: '', email: '', current: {}, future: {}, goal: '' })
+  const data = useRef({ name: '', age: '', gender: '', username: '', email: '', current: {}, future: {}, rawCommitments: [], refined: [] })
   const scrollRef = useRef(null)
 
   const addCoach = (text, delay = 700) =>
@@ -123,52 +144,54 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
   const submitFuture = async (future) => {
     data.current = { ...data.current, future }
     addUser('Mapped where I want to go')
-    // Aim the example goals at the domains where change is most wanted —
-    // desired-future importance crossed with today's reality.
-    const { answers, satisfaction } = deriveDomainSignals(data.current.current, future)
-    setExampleGoals(buildExampleGoals(leverageAreas(answers, satisfaction, 2)))
     setStep('goal')
-    await addCoach(COACH_MESSAGES.default.goalPrompt, 1000)
+    await addCoach(COACH_MESSAGES.default.goalPrompt, 1200)
   }
 
-  const submitGoal = async () => {
-    const value = input.trim()
-    if (!value) return
-    setInput('')
-    addUser(value)
+  // The three commitments → Nova elevates each into an overarching SMART goal.
+  // Returns an error STRING to the card (kept editable) when they need another
+  // pass, or null on success (the step advances to tone). Fails open: an API
+  // hiccup shapes the raw commitments locally rather than blocking onboarding.
+  const submitCommitments = async (rawGoals) => {
+    const rejected = data.current.commitmentAttempts || []
 
-    const rejected = data.current.goalAttempts || []
-
-    // Fast local pre-filter — catches empty, gibberish, and impossible answers
-    // even when the AI judge is unreachable (it fails open).
-    const check = validateGoal(value)
-    if (!check.ok) {
-      data.current = { ...data.current, goalAttempts: [...rejected, value] }
-      await addCoach(check.clarify, 900)
-      return // stay on goal step for a better answer
+    // Fast local pre-filter each — catches empty/gibberish/impossible offline.
+    for (let i = 0; i < rawGoals.length; i++) {
+      const check = validateGoal(rawGoals[i])
+      if (!check.ok) return `Commitment ${i + 1}: ${check.clarify}`
     }
 
-    // AI gate: Nova judges whether it's a real, workable goal. Attempt-aware —
-    // the judge sees every previously rejected answer and holds the same bar on
-    // retries, so the gate stays persistent instead of accepting the second try.
+    addUser(rawGoals.map((g, i) => `${i + 1}. ${g}`).join('\n'))
     setIsTyping(true)
-    const verdict = await judgeGoal({
-      rawGoal: value,
+    const ctx = buildIntakeContext(data.current.current, data.current.future)
+    const res = await refineCommitments({
       name: data.current.name,
+      rawGoals,
+      dream: ctx.dream,
+      situation: ctx.situation,
       tone: 'default',
       attempt: rejected.length + 1,
       rejected,
     })
     setIsTyping(false)
-    if (!verdict.ok) {
-      data.current = { ...data.current, goalAttempts: [...rejected, value] }
-      await addCoach(verdict.message || "Let's make that more concrete — what specifically do you want to achieve? Give me a real, reachable version.", 900)
-      return // loop: keep asking for a more obtainable goal
+
+    // Nova sent one back — keep the card editable and show why.
+    if (res && res.ok === false) {
+      data.current = { ...data.current, commitmentAttempts: [...rejected, ...rawGoals] }
+      return res.message || "One of those isn't quite a goal we can build yet — make it a little more concrete and overarching."
     }
 
-    data.current = { ...data.current, goal: value }
+    // Success, or fail-open (res === null → shape the raw commitments locally so
+    // onboarding never stalls on an API error).
+    const refined = res && res.ok && res.goals.length
+      ? res.goals
+      : rawGoals.map((g) => ({ title: actionableTitle(g), category: '', timeframeMonths: 6, rootAction: g }))
+    data.current = { ...data.current, rawCommitments: rawGoals, refined }
+
+    const titles = refined.map((r, i) => `${i + 1}. ${r.title}`).join('\n')
+    await addCoach(`Here's what I'm hearing — three commitments we can build:\n\n${titles}\n\nEach one is an overarching goal, sized to the next few months. Last thing: how do you want me to coach you?`, 1100)
     setStep('tone')
-    await addCoach('Got it — and that one we can build. Last thing: how do you want me to coach you?', 900)
+    return null
   }
 
   const handleTone = async (tone) => {
@@ -189,86 +212,57 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
     setTimeout(async () => {
       clearInterval(interval)
       setProgress(100)
-      const { name, age, gender, current, future, goal } = data.current
+      const { name, age, gender, current, future, refined } = data.current
       const now = new Date().toISOString()
-      const goalTitle = actionableTitle(goal)
-      const { answers, satisfaction } = deriveDomainSignals(current, future)
-      const focus = dreamFocus(answers, satisfaction)
+      const { answers, satisfaction, focus, extra, situation } = buildIntakeContext(current, future)
 
-      // Their own words from the intake notes — doubles as the profile's
-      // dreamDescription, so every downstream consumer keeps working.
-      const noteLines = []
-      CURRENT_QUESTIONS.forEach((q) => {
-        const n = (current?.[q.key]?.note || '').trim()
-        if (n) noteLines.push(`${q.label} (today): ${n}`)
-      })
-      FUTURE_QUESTIONS.forEach((q) => {
-        const n = (future?.[q.key]?.note || '').trim()
-        if (n) noteLines.push(`${q.label}: ${n}`)
-      })
-      const extra = noteLines.join('\n').slice(0, 1200)
+      // The three commitments, elevated to overarching goals. Their joined
+      // titles are the "dream" the future-vision reads as their path forward.
+      const commitments = (refined && refined.length ? refined : []).slice(0, 3)
+      const goalForStory = commitments.map((r) => r.title).join('; ')
+      const goalTitle = commitments[0]?.title || actionableTitle(goalForStory)
 
-      // Full grounding for the AI calls: both sections' ratings + notes, so the
-      // future-vision and roadmap grow out of their REAL starting point.
-      const fmt = (qs, map) => qs.map((q) => {
-        const e = map?.[q.key] || {}
-        const note = (e.note || '').trim()
-        return `- ${q.label}: ${e.rating || '?'} of 4${note ? ` — "${note}"` : ''}`
-      })
-      const situation = [
-        'Where they are today (1 = very low, 4 = very strong):',
-        ...fmt(CURRENT_QUESTIONS, current),
-        "Where they're going (1 = not important, 4 = core desire):",
-        ...fmt(FUTURE_QUESTIONS, future),
-      ].join('\n').slice(0, 2000)
-
-      // Personalized dream-life reading from Claude, built from THIS user's own
-      // dream/goal. Falls back to the local template if the API is unavailable.
+      // Personalized dream-life reading from Claude, built from the full intake
+      // + their three commitments. Falls back to the local template if the API
+      // is unavailable.
       let dreamStory
       try {
-        dreamStory = await generateDreamLifeStory({ name, goal, goalTitle, extra, tone, focus, situation })
+        dreamStory = await generateDreamLifeStory({ name, goal: goalForStory, goalTitle, extra, tone, focus, situation })
       } catch (e) {
         console.warn('[Onboarding] AI dream story failed, using local fallback:', e?.message)
       }
       if (!dreamStory) dreamStory = generateDreamStory({ name, age, answers, goalTitle, extra })
 
-      // Build the roadmap. The PRIMARY goal comes from the user's own words; the
-      // SUPPORTING goals are SPECIFIC, AI-written goals for the other life areas
-      // they rated highly — never generic templates. Both AI calls run in
-      // parallel so this adds no latency. If the AI is unreachable we fall back
-      // to the user's primary goal ALONE (a local scaffold the background
-      // upgrader specializes later) rather than ever showing a vague goal.
-      let goals = generateGoals(goal, answers, extra)
-      const localPrimaryCat = goals[0].category
-      const domains = Object.entries(answers || {})
-        .filter(([k, v]) => v >= 2 && k !== localPrimaryCat)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 2)
-        .map(([k]) => ({ key: k, label: (DREAM_QUESTIONS.find((q) => q.key === k) || {}).label || k }))
-      try {
-        const [ai, specs] = await Promise.all([
-          generateRoadmap({ name, rawGoal: goal, extra, tone, situation }),
-          generateSupportingGoals({ name, primaryGoal: goal, extra, domains, tone }),
-        ])
-        const aiPrimary = normalizeAiGoal(ai, goal, extra, 'goal-primary')
-        // Keep only the life areas they actually rated highly, one goal per area,
-        // and never one that duplicates the primary goal's area. (The model can
-        // volunteer extra off-target goals — those are dropped.)
-        const wanted = new Set(domains.map((d) => d.key))
-        const seen = new Set([aiPrimary.category])
-        const supporting = []
-        for (const s of specs || []) {
-          if (!s.title) continue
-          const built = buildSupportingGoal(s.title, s.category)
-          if (!wanted.has(built.category) || seen.has(built.category)) continue
-          seen.add(built.category)
-          supporting.push(built)
-        }
-        goals = [aiPrimary, ...supporting]
-      } catch (e) {
-        console.warn('[Onboarding] AI roadmap failed, primary goal only:', e?.message)
-        goals = goals.slice(0, 1) // never keep the generic survey supporting goals
-      }
+      // Build a roadmap for EACH commitment. Every goal is grounded in the full
+      // intake; the raw action they named is passed as context so a one-and-done
+      // becomes a stepping stone, never the goal. Nova's 3–12 month sizing wins
+      // over the roadmap's own guess. If any AI call fails, that goal falls back
+      // to a local scaffold the background upgrader specializes later — the
+      // roadmap is never left empty.
+      const goals = await Promise.all(
+        commitments.map(async (r, i) => {
+          const id = `goal-${i + 1}`
+          const tf = Math.round(Number(r.timeframeMonths))
+          const timeframeMonths = Number.isFinite(tf) ? Math.min(12, Math.max(3, tf)) : 6
+          try {
+            const ai = await generateRoadmap({
+              name,
+              rawGoal: r.title,
+              extra,
+              tone,
+              situation,
+              context: r.rootAction && r.rootAction !== r.title ? r.rootAction : '',
+            })
+            const built = normalizeAiGoal(ai, r.title, extra, id)
+            // Keep Nova's elevated, overarching title (what the user agreed to) —
+            // don't let the roadmap's own title guess pull it back to a task.
+            return { ...built, title: r.title, timeframeMonths }
+          } catch (e) {
+            console.warn('[Onboarding] roadmap failed for commitment', i + 1, e?.message)
+            return { ...buildGoal(r.title, extra, id), timeframeMonths }
+          }
+        }),
+      )
 
       // NOTE: identity fields (userId/email/username) are NOT set here — App.js
       // merges this over the existing profile so the account linkage survives.
@@ -282,9 +276,10 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
         dreamSatisfaction: satisfaction,
         currentState: current,
         desiredFuture: future,
+        commitments,
         additionalInfo: extra,
         dreamDescription: extra,
-        primaryGoalRaw: goal,
+        primaryGoalRaw: commitments.map((r) => r.title).join(' · '),
         dreamStory,
         goals,
         nonNeg: {},
@@ -361,21 +356,7 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
             />
           )}
 
-          {/* Example goals — tap to prefill, edit, then send. The judgeGoal gate
-              still applies to whatever is actually submitted. */}
-          {!isTyping && step === 'goal' && exampleGoals.length > 0 && (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {exampleGoals.map((ex) => (
-                <Pressable
-                  key={ex}
-                  onPress={() => setInput(ex)}
-                  style={{ borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8, backgroundColor: C.violetFill07, borderWidth: 1, borderColor: C.lineMid }}
-                >
-                  <Text style={{ fontFamily: F.medium, fontSize: 12.5, color: C.ink2 }}>{ex}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
+          {!isTyping && step === 'goal' && <ThreeCommitments onSubmit={submitCommitments} />}
 
           {step === 'tone' && !toneSelected && (
             <View style={{ gap: 12, marginTop: 4 }}>
@@ -415,27 +396,60 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
           )}
         </ScrollView>
 
-        {/* Bottom input — only for the dream/goal step */}
-        {step === 'goal' && !isTyping && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 28 }}>
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              onSubmitEditing={submitGoal}
-              placeholder="Your biggest dream or goal..."
-              placeholderTextColor={C.faint2}
-              autoFocus
-              autoComplete="off"
-              autoCorrect={false}
-              importantForAutofill="no"
-              returnKeyType="send"
-              style={inputStyle}
-            />
-            <SendButton active={!!input.trim()} onPress={submitGoal} />
-          </View>
-        )}
       </View>
     </KeyboardAvoidingView>
+  )
+}
+
+// ── Three commitments → Nova elevates each into an overarching SMART goal ─────
+// Three free-text lines (no preset goals). onSubmit returns an error string to
+// re-ask (card stays editable) or null on success (the step advances).
+const COMMIT_PLACEHOLDERS = [
+  'A commitment that feels alive and true…',
+  'One that feels necessary…',
+  'One that would open the path…',
+]
+function ThreeCommitments({ onSubmit }) {
+  const [goals, setGoals] = useState(['', '', ''])
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const ready = goals.every((g) => g.trim().length >= 3) && !busy
+  const setAt = (i, v) => setGoals((g) => g.map((x, j) => (j === i ? v : x)))
+
+  const submit = async () => {
+    setBusy(true)
+    setError(null)
+    const err = await onSubmit(goals.map((g) => g.trim()))
+    if (err) {
+      setError(err)
+      setBusy(false)
+    }
+    // On success the step changes and this card unmounts.
+  }
+
+  return (
+    <View style={cardStyle}>
+      <Text style={cardKicker}>THREE COMMITMENTS · NEXT 3–12 MONTHS</Text>
+      {[0, 1, 2].map((i) => (
+        <Field key={i} label={`Commitment ${i + 1}`}>
+          <TextInput
+            value={goals[i]}
+            onChangeText={(v) => setAt(i, v)}
+            placeholder={COMMIT_PLACEHOLDERS[i]}
+            placeholderTextColor={C.faint2}
+            autoComplete="off"
+            autoCorrect={false}
+            importantForAutofill="no"
+            multiline
+            style={[fieldInput, { minHeight: 46, textAlignVertical: 'top', paddingTop: 12 }]}
+          />
+        </Field>
+      ))}
+      {error && (
+        <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.amber, marginTop: 14, lineHeight: 18 }}>{error}</Text>
+      )}
+      <SubmitBar label={busy ? 'Building with Nova…' : 'Build these with Nova'} disabled={!ready} onPress={submit} />
+    </View>
   )
 }
 
@@ -661,22 +675,6 @@ function SubmitBar({ label, disabled, onPress, flush }) {
   )
 }
 
-function SendButton({ active, onPress }) {
-  return (
-    <Pressable onPress={active ? onPress : undefined}>
-      {active ? (
-        <LinearGradient colors={[C.amber, C.amberDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sendStyle}>
-          <Send size={18} color={C.amberInk} strokeWidth={2.2} />
-        </LinearGradient>
-      ) : (
-        <View style={[sendStyle, { backgroundColor: 'rgba(255,255,255,0.06)' }]}>
-          <Send size={18} color={C.faint2} strokeWidth={2.2} />
-        </View>
-      )}
-    </Pressable>
-  )
-}
-
 const cardStyle = {
   borderRadius: 18,
   padding: 18,
@@ -696,16 +694,3 @@ const fieldInput = {
   fontSize: 14.5,
   color: C.ink,
 }
-const inputStyle = {
-  flex: 1,
-  backgroundColor: C.lineSoft,
-  borderWidth: 1,
-  borderColor: C.lineStrong,
-  borderRadius: 14,
-  paddingVertical: 13,
-  paddingHorizontal: 18,
-  fontFamily: F.body,
-  fontSize: 14.5,
-  color: C.ink,
-}
-const sendStyle = { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' }

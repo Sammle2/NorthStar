@@ -322,37 +322,6 @@ Return ONLY the story text.`
   return (text || '').trim()
 }
 
-// One short deep-dive question for a leverage life area — Nova digging into what
-// the user would change there and why it matters, grounded in their survey
-// ratings and any earlier exchanges. Returns the question text only; THROWS on
-// any API/parse failure (the caller has local fallback questions).
-// area = { key, label, importance, satisfaction }; priorQA = [{ q, a }].
-export async function dreamDeepDiveQuestion({ name = '', area, priorQA = [], tone = 'default' }) {
-  const firstName = (name || '').split(' ')[0] || 'friend'
-  const importanceWords = ['not important to them', 'a little important to them', 'very important to them', 'everything to them']
-  const satisfactionWords = { '-1': 'unhappy with it today', 0: 'neutral about it today', 1: 'happy with it today' }
-  const prior = priorQA
-    .filter((x) => x && x.q && x.a)
-    .map((x) => `Q: ${x.q}\nA: ${x.a}`)
-    .join('\n')
-  const prompt = `You are Nova, ${firstName}'s coach inside NorthStar. You're having a short get-to-know-you conversation before building their roadmap.
-
-The life area to explore: ${area.label}
-How much it matters to them: ${importanceWords[area.importance] || importanceWords[2]}
-How they feel about it right now: ${satisfactionWords[area.satisfaction] ?? satisfactionWords[0]}
-${prior ? `What you've already asked, and what they said:\n${prior}\n` : ''}
-Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
-
-Write ONE short question for ${firstName} — one sentence, warm, personal, second person — digging into what they would change about this area of their life and what's standing in the way. Ground it in how they said they feel about it today${prior ? ', build on their earlier answers, and never repeat a question you already asked' : ''}. Be specific to this area, not generic.
-
-Return ONLY the question text — no JSON, no quotes, no preamble.`
-
-  const text = await callClaude(prompt, 200)
-  const question = (text || '').trim().replace(/^["'“‘]+|["'”’]+$/g, '').trim()
-  if (!question) throw new Error('Empty deep-dive question')
-  return question
-}
-
 // Pull the first JSON value (object or array) out of a model response, tolerating
 // ```json fences or stray prose around it. Throws if nothing parseable is found.
 function extractJson(text) {
@@ -551,6 +520,73 @@ Return ONLY a JSON array, one object per area, no prose, no code fences:
   } catch (e) {
     console.warn('[Onboarding] supporting-goals generation failed:', e?.message)
     return []
+  }
+}
+
+// Co-build the user's THREE commitments toward their dream into overarching,
+// SMART goals. Each raw commitment is elevated to the life-level outcome it
+// serves — a one-and-done action ("host a bible study") becomes the goal it's
+// really in service of ("Build a Strong, Connected Community"), with the action
+// kept as `rootAction` to seed a stepping stone later. Every goal is made SMART
+// (Specific, Measurable, Achievable in 3–12 months, Relevant to their intake,
+// Time-bound via timeframeMonths) and grounded in their real situation.
+//
+// Returns { ok:true, goals:[{ title, category, timeframeMonths, rootAction }] }
+// (exactly three) when all are workable, or { ok:false, message } when one is
+// gibberish/empty/impossible so the caller can re-ask. FAILS OPEN — returns
+// null on any API/parse error so the caller can fall back to local shaping and
+// onboarding never dead-ends.
+export async function refineCommitments({ name = '', rawGoals = [], dream = '', situation = '', tone = 'default', attempt = 1, rejected = [] }) {
+  const firstName = (name || '').split(' ')[0] || 'they'
+  const list = rawGoals.map((g, i) => `${i + 1}. "${g}"`).join('\n')
+  const retryContext = rejected.length
+    ? `\nThis is attempt #${attempt}. Earlier commitments you already sent back as not workable: ${rejected.map((r) => `"${r}"`).join(', ')}. Hold the same bar — do not accept gibberish or impossible answers just because they tried before.`
+    : ''
+  const prompt = `You are Nova, ${firstName}'s coach in NorthStar. ${firstName} just named THREE commitments they want to make over the next 3–12 months to move toward the life they're building.${retryContext}
+
+${dream && dream.trim() ? `Where they're headed (their dream): ${dream.trim()}\n` : ''}Their full intake — where they are today and where they want to go (ratings 1-4 plus their own notes):
+${situation || '(not provided)'}
+
+The three commitments, in their own words:
+${list}
+
+For EACH commitment, produce ONE OVERARCHING, SMART goal:
+- OVERARCHING, not a one-and-done task. If they named a single action ("host a bible study", "run a 10k", "read 5 books"), elevate it to the larger life outcome that action SERVES ("Build a Strong, Connected Community", "Become a Confident Distance Runner", "Grow Into a Lifelong Learner"). The action they named is a stepping stone toward the goal, never the goal itself — capture it in "rootAction". The goal must be something they keep making progress on for months, not a box ticked once.
+- SMART: Specific and Measurable (a clear success condition — a number, a named outcome, or an identity reached), Achievable within 3–12 months from where they are today, Relevant to their dream and intake, Time-bound (set "timeframeMonths", an integer 3–12, for how long it realistically takes).
+- Keep it in THEIR world — grounded in what they actually wrote, honoring their constraints. Title Case, 2–6 words, no leading "I want to".
+
+Judge each commitment first. A commitment is UNWORKABLE only if it is gibberish/empty, a joke, or genuinely impossible/fantasy (be immortal, grow taller). A vague-but-real commitment is NOT unworkable — reshape it into a concrete overarching goal. If ANY of the three is unworkable, do NOT invent a replacement.
+
+Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
+
+Return ONLY JSON, no prose, no code fences:
+- If all three are workable: {"ok": true, "goals": [{"title": "<overarching SMART goal>", "category": "<one of: ${GOAL_CATEGORIES.join(', ')}>", "timeframeMonths": <integer 3-12>, "rootAction": "<the concrete action they named, or "">"}, ... three total, in the same order]}
+- If one or more is unworkable: {"ok": false, "message": "<1-2 warm sentences in the tone above naming which commitment (by number) needs rethinking, and giving a concrete example of a real, overarching version>"}`
+
+  try {
+    const res = await callClaude(prompt, 700)
+    const parsed = extractJson(res)
+    if (parsed && parsed.ok === false) {
+      return { ok: false, message: (parsed.message || '').trim() || "One of those isn't quite a goal we can build yet — make it a little more concrete and I'll shape it with you." }
+    }
+    const goals = (Array.isArray(parsed?.goals) ? parsed.goals : [])
+      .filter((g) => g && typeof g.title === 'string' && g.title.trim())
+      .slice(0, 3)
+      .map((g) => {
+        const tf = Math.round(Number(g.timeframeMonths))
+        return {
+          title: g.title.trim(),
+          category: typeof g.category === 'string' ? g.category.trim() : '',
+          timeframeMonths: Number.isFinite(tf) ? Math.min(12, Math.max(3, tf)) : 6,
+          rootAction: typeof g.rootAction === 'string' ? g.rootAction.trim() : '',
+        }
+      })
+    if (goals.length !== rawGoals.length || goals.length === 0) throw new Error('Incomplete refined commitments')
+    return { ok: true, goals }
+  } catch (e) {
+    // Fail open — the caller shapes the raw commitments locally instead.
+    console.warn('[Onboarding] refineCommitments failed:', e?.message)
+    return null
   }
 }
 
@@ -820,11 +856,11 @@ export default {
   suggestStepsForMilestone,
   generateDailyActionsForMilestone,
   generateDreamLifeStory,
-  dreamDeepDiveQuestion,
   generateRoadmap,
   generateSupportingGoals,
   generateSprintPlan,
   generatePlan,
+  refineCommitments,
   judgeGoal,
   judgeSprint,
   moderateImage,
