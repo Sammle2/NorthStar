@@ -4,6 +4,7 @@ import { Check, Lock, MessageCircle, TrendingUp, UserPlus, X } from 'lucide-reac
 import { C, F } from '../tokens'
 import Avatar from './Avatar'
 import StreakBadge from './StreakBadge'
+import { liveStreakOf } from '../store'
 
 // A person's public profile, shown as a centered modal. What a viewer sees:
 // avatar, name, @username, streak, and % to dream — plus their dream + bio when
@@ -34,7 +35,7 @@ export default function UserProfileModal({ card, status, statusLoading, busy, on
           {card.username ? <Text style={{ fontFamily: F.body, fontSize: 13, color: C.violet, marginTop: 2 }}>@{card.username}</Text> : null}
           {!isPrivate && !relationshipPending && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 }}>
-              <StreakBadge streak={card.streak || 0} />
+              <StreakBadge streak={liveStreakOf(card.streak, card.last_check_in)} />
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }}>
                 <TrendingUp size={13} color={C.violet} strokeWidth={2.4} />
                 <Text style={{ fontFamily: F.semibold, fontSize: 12, color: C.violet }}>{card.dream_progress || 0}% to dream</Text>

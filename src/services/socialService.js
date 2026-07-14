@@ -30,6 +30,9 @@ export function projectionFromProfile(profile) {
     city: profile.location || null,
     visibility: profile.visibility || 'private',
     streak: profile.streak || 0,
+    // Published so viewers can compute the LIVE streak (a banked streak is stale
+    // once its last day slips past yesterday) — see store.liveStreakOf.
+    last_check_in: profile.lastCheckIn || null,
     dream_progress: dreamProgressOf(profile),
     dream: profile.dreamDescription || null,
   }

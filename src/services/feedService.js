@@ -4,7 +4,7 @@
 // you're their friend); "Public" shows audience='public' posts from anyone.
 import { getSupabaseClient } from './supabaseAuth'
 
-const AUTHOR = 'author:profiles!inner(id,username,full_name,avatar_url,visibility,streak,dream_progress)'
+const AUTHOR = 'author:profiles!inner(id,username,full_name,avatar_url,visibility,streak,last_check_in,dream_progress)'
 const SELECT = `id,user_id,content,media_url,media_type,audience,created_at,${AUTHOR},likes:post_likes(user_id)`
 
 // True when the error is "column posts.audience does not exist" — the audience

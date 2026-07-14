@@ -5,16 +5,16 @@ import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
 import GlowProgress from '../components/GlowProgress'
 import ConnectableProfileModal from '../components/ConnectableProfileModal'
-import { todayKey, yesterdayKey } from '../store'
+import { todayKey, liveStreakOf } from '../store'
 import {
   createCircle, joinByCode, inviteToCircle, respondInvite, leaveCircle,
   getMyCircles, getMyInvites, getCircleMembers,
 } from '../../services/circleService'
 import { getFriendships, getIdentities, getProfile } from '../../services/socialService'
 
-// Live streak / hit-today from the raw values the RPC returns (matches the app's
-// client-local streak logic): a banked count only counts if the chain is unbroken.
-const liveStreak = (m) => (m.last_check_in === todayKey() || m.last_check_in === yesterdayKey() ? (m.streak || 0) : 0)
+// Live streak / hit-today from the raw values the RPC returns — one shared
+// definition (store.liveStreakOf) so circles, the feed, and profile cards agree.
+const liveStreak = (m) => liveStreakOf(m.streak, m.last_check_in)
 const hitToday = (m) => m.last_check_in === todayKey()
 
 const copyText = (t) => { try { navigator?.clipboard?.writeText?.(t) } catch (e) {} }
@@ -182,7 +182,7 @@ export function CircleDetail({ profile, circle, onClose, onMessageUser }) {
 
   const openMember = async (m) => {
     if (m.user_id === myId) return
-    setViewing({ id: m.user_id, full_name: m.name, username: m.username, avatar_url: m.avatar_url, streak: liveStreak(m), dream_progress: m.dream_progress })
+    setViewing({ id: m.user_id, full_name: m.name, username: m.username, avatar_url: m.avatar_url, streak: m.streak, last_check_in: m.last_check_in, dream_progress: m.dream_progress })
     const full = await getProfile(m.user_id)
     setViewing((v) => (v && v.id === m.user_id ? (full || { ...v, _private: true }) : v))
   }

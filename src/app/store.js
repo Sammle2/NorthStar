@@ -60,15 +60,21 @@ export function yesterdayKey() {
   return dateKeyOf(d)
 }
 
-// The user's LIVE streak: consecutive days where all three non-negotiables were
-// completed. profile.streak is only trustworthy while the chain is unbroken —
-// if the last banked day is neither today nor yesterday, a day was missed and
-// the real streak is 0. (Yesterday still counts: today is still in progress.)
+// The LIVE streak from a banked count + its last check-in day. A banked streak is
+// only real while the chain is unbroken — if the last banked day is neither today
+// nor yesterday, a day was missed and the real streak is 0. (Yesterday still
+// counts: today is still in progress.) Works on ANY user's published values, so
+// the feed, profile cards, and circle boards all read the same accurate number
+// instead of a stale stored `streak` that only its owner ever recomputes.
+export function liveStreakOf(streak, lastCheckIn) {
+  if (!lastCheckIn) return 0
+  if (lastCheckIn !== todayKey() && lastCheckIn !== yesterdayKey()) return 0
+  return streak || 0
+}
+
+// The signed-in user's own live streak.
 export function currentStreak(profile) {
-  const last = profile?.lastCheckIn
-  if (!last) return 0
-  if (last !== todayKey() && last !== yesterdayKey()) return 0
-  return profile.streak || 0
+  return liveStreakOf(profile?.streak, profile?.lastCheckIn)
 }
 
 export function getGreeting() {

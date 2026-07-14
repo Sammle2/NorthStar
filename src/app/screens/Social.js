@@ -6,7 +6,7 @@ import { C, F } from '../tokens'
 import Avatar from '../components/Avatar'
 import ConnectableProfileModal from '../components/ConnectableProfileModal'
 import { CirclesPanel, CircleDetail } from './Circles'
-import { currentStreak } from '../store'
+import { currentStreak, liveStreakOf } from '../store'
 import { getFriendships, getProfile, saveProfileNow } from '../../services/socialService'
 import { getFriendsFeed, getPublicFeed, createPost, toggleLike, updatePost, deletePost, uploadPostMedia } from '../../services/feedService'
 import { reportPost, blockUser } from '../../services/moderationService'
@@ -411,7 +411,7 @@ export default function Social({ profile, onOpenDMs, onOpenAddFriends, onMessage
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                     <Flame size={14} color={C.amber} strokeWidth={2.2} />
                     <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.dim }}>
-                      {(p.userId === myId ? myStreak : (p.author?.streak || 0))}-day streak
+                      {(p.userId === myId ? myStreak : liveStreakOf(p.author?.streak, p.author?.last_check_in))}-day streak
                     </Text>
                   </View>
                   {/* Dream progress: my own is computed locally (live); friends' comes

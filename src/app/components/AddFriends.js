@@ -10,6 +10,7 @@ import {
   sendFriendRequest, acceptFriendRequest, removeFriendship,
 } from '../../services/socialService'
 import { openDm, sendMessage } from '../../services/dmService'
+import { liveStreakOf } from '../store'
 
 // Full-screen overlay: search people, manage requests, and see your friends.
 // Opened from the people+plus icon on the Friends tab.
@@ -151,7 +152,7 @@ export default function AddFriends({ profile, onClose, onChanged, onMessageUser 
             </View>
           ) : friends.map(({ friendship, otherId, card }) => (
             <PersonRow key={friendship.id} card={card || { id: otherId }} onPress={() => openUser(otherId)}>
-              {card ? <StreakBadge streak={card.streak || 0} /> : null}
+              {card ? <StreakBadge streak={liveStreakOf(card.streak, card.last_check_in)} /> : null}
             </PersonRow>
           ))}
         </View>
