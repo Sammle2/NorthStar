@@ -407,73 +407,100 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
 // Timeline switcher — the axis runs Day 0 → the horizon (largest goal timeframe,
 // min 12mo). Each goal is a node at its timeframeMonths; the Dream star anchors
 // the far right. Tapping behaves exactly like the old chips: onSelect(g.id | 'dream').
-const TL_H = 78
-const TL_LINE_Y = 36
+// Month ticks sit ABOVE the axis; goal + Dream labels stack in lanes BELOW it, so
+// goals that share a deadline (all of Max's are 12-month) read one-per-row instead
+// of piling their titles on top of each other.
 const TL_LABEL_W = 84
+const TL_LANE_H = 15
+const TL_AXIS_Y = 20
+const TL_LABEL_TOP = TL_AXIS_Y + 11
+const clampN = (v, lo, hi) => Math.max(lo, Math.min(v, hi))
 
 function TimelineSwitcher({ goals, view, onSelect }) {
   // Measure the row itself (same trick as the road below) — on web the app lives
   // in a fixed 375px frame, so the window width can't be trusted.
   const [w, setW] = useState(0)
   const T = Math.max(12, ...goals.map(goalDurationMonths))
-  const ticks = [0, 3, 6, 12].concat(T >= 18 ? [18] : []).concat(T >= 24 ? [24] : [])
-  // Goals sharing a month get nudged apart so nodes don't stack; everything is
-  // clamped clear of the edges — the Dream star owns the far right.
-  const seen = {}
-  const placed = goals.map((g, i) => {
-    const months = goalDurationMonths(g)
-    const k = seen[months] || 0
-    seen[months] = k + 1
-    const dx = (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 12
-    const x = Math.max(10, Math.min((months / T) * w + dx, w - 24))
-    // Near the right end the top row belongs to "The Dream" label — goals
-    // landing there always drop below the axis so the two never collide.
-    return { g, x, above: x > w - 78 ? false : i % 2 === 0 }
-  })
-  // Labels may spill a little into the 24px side margins, never past the frame.
-  const clampLabel = (x) => Math.max(-16, Math.min(x - TL_LABEL_W / 2, w - TL_LABEL_W + 16))
+  // Ticks above the axis. The horizon endpoint is marked by the Dream star, so we
+  // don't draw a tick that would sit underneath it.
+  const ticks = [0, 3, 6, 9, 12, 18, 24].filter((m) => m < T)
+  const NODE_GAP = 26 // min spacing so two nodes never sit on top of each other
+  const rightLimit = w - 38 // keep goal nodes clear of the Dream star at the far right
+
+  // 1) Place each goal node at its true month, then de-collide left→right: any node
+  //    too close to its neighbour is pushed right; if the cluster overruns the right
+  //    limit, the whole run slides left so it still fits (same-deadline goals fan out).
+  const items = goals
+    .map((g) => ({ id: g.id, title: g.title, color: CATEGORY_COLORS[g.category] || C.amber, reached: g.progress >= 100, x0: (goalDurationMonths(g) / T) * w }))
+    .sort((a, b) => a.x0 - b.x0)
+  let prevX = -Infinity
+  items.forEach((it) => { let x = clampN(it.x0, 12, rightLimit); if (x - prevX < NODE_GAP) x = prevX + NODE_GAP; it.x = x; prevX = x })
+  const over = items.length ? Math.max(0, items[items.length - 1].x - rightLimit) : 0
+  if (over > 0) { let p = -Infinity; items.forEach((it) => { let x = clampN(it.x - over, 12, rightLimit); if (x - p < NODE_GAP) x = p + NODE_GAP; it.x = x; p = x }) }
+
+  // 2) Labels (goals + the Dream) pack into as few stacked lanes as fit without
+  //    overlapping. A label reuses the highest lane whose previous label has cleared
+  //    its left edge; otherwise it drops to a new lane. Zero horizontal collisions,
+  //    for any number of goals.
+  const dreamX = w > 0 ? w - 15 : 0
+  const targets = [...items, { id: 'dream', title: 'The Dream', color: C.amber, x: dreamX }]
+  const laneEnd = []
+  targets
+    .slice()
+    .sort((a, b) => a.x - b.x)
+    .forEach((t) => {
+      const left = clampN(t.x - TL_LABEL_W / 2, 0, Math.max(0, w - TL_LABEL_W))
+      let lane = 0
+      while (lane < laneEnd.length && left < laneEnd[lane] + 6) lane++
+      t.left = left
+      t.lane = lane
+      laneEnd[lane] = left + TL_LABEL_W
+    })
+  const laneCount = Math.max(1, laneEnd.length)
+  const H = TL_LABEL_TOP + laneCount * TL_LANE_H + 2
+
   return (
-    <View style={{ height: TL_H, marginHorizontal: 24, marginTop: 6, marginBottom: 4 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+    <View style={{ height: H, marginHorizontal: 24, marginTop: 6, marginBottom: 4 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
       {w > 0 && (
         <>
-          <View style={{ position: 'absolute', left: 0, right: 0, top: TL_LINE_Y, height: 1, backgroundColor: C.lineStrong }} />
+          {/* Axis */}
+          <View style={{ position: 'absolute', left: 0, right: 0, top: TL_AXIS_Y, height: 1, backgroundColor: C.lineStrong }} />
+          {/* Month ticks — above the axis */}
           {ticks.map((m) => (
             <React.Fragment key={m}>
-              {m < T && <View style={{ position: 'absolute', left: (m / T) * w, top: TL_LINE_Y + 3, width: 1, height: 4, backgroundColor: C.lineStrong }} />}
-              <Text style={{ position: 'absolute', left: Math.max(-4, Math.min((m / T) * w - 20, w - 24)), top: 66, width: 40, fontFamily: F.medium, fontSize: 9, lineHeight: 12, color: C.faint2, textAlign: 'center' }}>
+              <View style={{ position: 'absolute', left: (m / T) * w, top: TL_AXIS_Y - 4, width: 1, height: 4, backgroundColor: C.lineStrong }} />
+              <Text style={{ position: 'absolute', left: clampN((m / T) * w - 20, -4, w - 36), top: 0, width: 40, fontFamily: F.medium, fontSize: 9, lineHeight: 12, color: C.faint2, textAlign: 'center' }}>
                 {m === 0 ? 'Day 0' : `${m}mo`}
               </Text>
             </React.Fragment>
           ))}
-          {placed.map(({ g, x, above }) => {
-            const color = CATEGORY_COLORS[g.category] || C.amber
-            const on = view === g.id
-            const reached = g.progress >= 100
+          {/* Goal nodes on the axis */}
+          {items.map((it) => {
+            const on = view === it.id
             return (
-              <React.Fragment key={g.id}>
-                {/* Node — a selection ring when active; filled once the goal is reached */}
-                <Pressable onPress={() => onSelect(g.id)} hitSlop={6} style={{ position: 'absolute', left: x - 13, top: TL_LINE_Y - 13, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: on ? color : 'transparent' }}>
-                  <View
-                    style={[
-                      { width: 15, height: 15, borderRadius: 7.5, borderWidth: 2, borderColor: color, backgroundColor: reached ? color : C.bg, opacity: on ? 1 : 0.6 },
-                      on && { shadowColor: color, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
-                    ]}
-                  />
-                </Pressable>
-                {/* Labels alternate above/below the axis so neighbors don't collide */}
-                <Pressable onPress={() => onSelect(g.id)} hitSlop={4} style={{ position: 'absolute', left: clampLabel(x), top: above ? 4 : TL_LINE_Y + 16, width: TL_LABEL_W }}>
-                  <Text numberOfLines={1} style={{ fontFamily: on ? F.semibold : F.medium, fontSize: 10.5, lineHeight: 13, color: on ? color : C.dim, textAlign: 'center' }}>{g.title}</Text>
-                </Pressable>
-              </React.Fragment>
+              <Pressable key={`n-${it.id}`} onPress={() => onSelect(it.id)} hitSlop={6} style={{ position: 'absolute', left: it.x - 13, top: TL_AXIS_Y - 13, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: on ? it.color : 'transparent' }}>
+                <View
+                  style={[
+                    { width: 15, height: 15, borderRadius: 7.5, borderWidth: 2, borderColor: it.color, backgroundColor: it.reached ? it.color : C.bg, opacity: on ? 1 : 0.6 },
+                    on && { shadowColor: it.color, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+                  ]}
+                />
+              </Pressable>
             )
           })}
           {/* The Dream — the star at the far end of the axis */}
-          <Pressable onPress={() => onSelect('dream')} hitSlop={6} style={{ position: 'absolute', left: w - 15, top: TL_LINE_Y - 15, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: view === 'dream' ? C.amber : C.lineStrong }}>
+          <Pressable onPress={() => onSelect('dream')} hitSlop={6} style={{ position: 'absolute', left: dreamX - 15, top: TL_AXIS_Y - 15, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: view === 'dream' ? C.amber : C.lineStrong }}>
             <Text style={{ fontSize: 14, color: C.amber, opacity: view === 'dream' ? 1 : 0.65 }}>✦</Text>
           </Pressable>
-          <Pressable onPress={() => onSelect('dream')} hitSlop={4} style={{ position: 'absolute', left: w - 60, top: 4, width: 76 }}>
-            <Text numberOfLines={1} style={{ fontFamily: view === 'dream' ? F.semibold : F.medium, fontSize: 10.5, lineHeight: 13, color: view === 'dream' ? C.amber : C.dim, textAlign: 'right' }}>The Dream</Text>
-          </Pressable>
+          {/* Labels — one per lane below the axis, never overlapping */}
+          {targets.map((t) => {
+            const on = view === t.id
+            return (
+              <Pressable key={`l-${t.id}`} onPress={() => onSelect(t.id)} hitSlop={4} style={{ position: 'absolute', left: t.left, top: TL_LABEL_TOP + t.lane * TL_LANE_H, width: TL_LABEL_W }}>
+                <Text numberOfLines={1} style={{ fontFamily: on ? F.semibold : F.medium, fontSize: 10.5, lineHeight: 13, color: on ? t.color : C.dim, textAlign: 'center' }}>{t.title}</Text>
+              </Pressable>
+            )
+          })}
         </>
       )}
     </View>
