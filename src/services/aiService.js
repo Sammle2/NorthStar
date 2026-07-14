@@ -590,6 +590,76 @@ Return ONLY JSON, no prose, no code fences:
   }
 }
 
+// Re-check the three goals AFTER the user has edited them. Unlike
+// refineCommitments this RESPECTS their wording — it only pushes back when a
+// goal has drifted into something that isn't a real long-term goal, and it
+// explains WHY. Short-term one-off tasks belong in Sprints (the app's separate
+// deadline-driven tasks), so those are rejected with that explanation.
+//
+// Returns { ok:true, goals:[{ title, category, timeframeMonths }] } (their
+// titles, only lightly cleaned) when all pass, or { ok:false, message } when one
+// needs to be more SMART / is really a Sprint. FAILS OPEN (null) on any API/parse
+// error so the caller can trust the user's edits and never dead-ends.
+export async function reviewGoals({ name = '', goals = [], editedIndices = null, dream = '', situation = '', tone = 'default' }) {
+  const firstName = (name || '').split(' ')[0] || 'they'
+  const list = goals.map((g, i) => `${i + 1}. "${g}"`).join('\n')
+  // Only the goals the user actually edited get scrutinized — the untouched ones
+  // are Nova's own already-approved goals and must be accepted as-is (otherwise
+  // Nova would reject its own suggestions on a stricter second look).
+  const edited = Array.isArray(editedIndices) && editedIndices.length
+    ? editedIndices.map((i) => i + 1)
+    : goals.map((_, i) => i + 1)
+  const scope = edited.length >= goals.length
+    ? 'Check every goal.'
+    : `The user only EDITED goal ${edited.join(' and ')}. ONLY scrutinize ${edited.length > 1 ? 'those' : 'that one'} — the other goals were already approved as solid long-term goals, so accept them exactly as written and never reject an unedited goal.`
+  const prompt = `You are Nova, ${firstName}'s coach in NorthStar. ${firstName} just reviewed and edited their three long-term goals. ${scope}
+
+${dream && dream.trim() ? `Where they're headed (their dream): ${dream.trim()}\n` : ''}Their situation:
+${situation || '(not provided)'}
+
+The three goals, as they've written them:
+${list}
+
+Each goal must be an OVERARCHING, SMART long-term goal for the next 3–12 months: Specific, Measurable (a clear success condition), Achievable, Relevant to their dream, and Time-bound. It must be something they keep progressing on for months — NOT a vague wish and NOT a single one-off task.
+
+IMPORTANT — short-term tasks are NOT goals here. NorthStar has a separate feature called SPRINTS: short, deadline-driven tasks the user creates inside the app, each broken into a few scheduled steps. If an EDITED goal is really a one-off or short-term task (e.g. "finish my essay", "run a 5k next month", "call the bank", "read one book", "book the flight"), it belongs as a Sprint, not as one of these three long-term goals.
+
+Judge only the edited goal(s):
+- ACCEPT an edited goal exactly as written if it is a real, overarching, SMART long-term goal — even if reworded or simplified. Respect their wording; do not rewrite it.
+- REJECT only if an EDITED goal is a one-off / short-term task, too vague to measure, or not a real long-term goal.
+
+Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
+
+Return ONLY JSON, no prose, no code fences:
+- If the edited goal(s) are acceptable: {"ok": true, "goals": [{"title": "<the title, cleaned only for capitalization/obvious typos>", "category": "<one of: ${GOAL_CATEGORIES.join(', ')}>", "timeframeMonths": <integer 3-12>}, ... one object per goal, all three in the same order>]}
+- If an EDITED goal is NOT acceptable: {"ok": false, "message": "<2-4 warm sentences in the tone above. Name which goal (by its number ${edited.join('/')}) and explain WHY it isn't a SMART long-term goal yet — which piece is missing (specific / measurable / time-bound) and how to make it overarching. If it's really a short-term one-off, explain that NorthStar has Sprints for exactly that — short, deadline-driven tasks you add inside the app and I break into steps — so keep the long-term goal here and make that a Sprint later.>"}`
+
+  try {
+    const res = await callClaude(prompt, 600)
+    const parsed = extractJson(res)
+    if (parsed && parsed.ok === false) {
+      return { ok: false, message: (parsed.message || '').trim() || "One of those reads more like a short-term task than a long-term goal — let's make it specific and measurable, or save it as a Sprint in the app later." }
+    }
+    const out = (Array.isArray(parsed?.goals) ? parsed.goals : [])
+      .filter((g) => g && typeof g.title === 'string' && g.title.trim())
+      .slice(0, goals.length)
+      .map((g) => {
+        const tf = Math.round(Number(g.timeframeMonths))
+        return {
+          title: g.title.trim(),
+          category: typeof g.category === 'string' ? g.category.trim() : '',
+          timeframeMonths: Number.isFinite(tf) ? Math.min(12, Math.max(3, tf)) : 6,
+        }
+      })
+    if (out.length !== goals.length || out.length === 0) throw new Error('Incomplete reviewed goals')
+    return { ok: true, goals: out }
+  } catch (e) {
+    // Fail open — trust the user's edits; the caller shapes them locally.
+    console.warn('[Onboarding] reviewGoals failed:', e?.message)
+    return null
+  }
+}
+
 // Judge whether the user's stated "most important goal" is real and workable
 // enough to build a roadmap around. Returns { ok, message } — when not ok,
 // `message` is Nova's warm re-ask for something more specific/attainable.
@@ -861,6 +931,7 @@ export default {
   generateSprintPlan,
   generatePlan,
   refineCommitments,
+  reviewGoals,
   judgeGoal,
   judgeSprint,
   moderateImage,
