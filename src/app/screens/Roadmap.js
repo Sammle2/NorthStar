@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Svg, { Circle, Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-native-svg'
-import { ChevronRight, RotateCcw } from 'lucide-react-native'
+import { ChevronRight, RotateCcw, Zap } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
 import { recomputeGoal, shortStepLabel } from '../aiEngine'
@@ -42,7 +42,22 @@ function buildGeometry(nodeCount, W) {
   return { points, d, height, length }
 }
 
-export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
+// Compact days-until label for a sprint's due date, for the small road pins:
+// "today", "1d", "5d", or "late" once it's past. By calendar day, recomputed
+// each render so it stays live.
+function sprintDueLabel(iso) {
+  if (!iso) return ''
+  const due = new Date(iso)
+  if (isNaN(due)) return ''
+  const a = new Date(); a.setHours(0, 0, 0, 0)
+  const b = new Date(due.getFullYear(), due.getMonth(), due.getDate())
+  const d = Math.round((b - a) / 86400000)
+  if (d < 0) return 'late'
+  if (d === 0) return 'today'
+  return `${d}d`
+}
+
+export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }) {
   // Size the road to the ACTUAL container, not the window: on web the app lives in
   // a fixed 375px phone frame while the window is much wider — useWindowDimensions
   // alone would build a 520px road that overflows the frame and clips edge labels.
@@ -163,6 +178,20 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
       ),
     })
     onUpdate({ ...profile, goals: goals.map((g) => (g.id === goal.id ? updatedGoal : g)) })
+  }
+
+  // ── Active sprints, pinned to the road near where you are now ──────────────
+  // On a goal's path we show that goal's sprints; on the Dream overview, the
+  // ones not tied to any goal. Each pin rides just up-road from the current
+  // stepping stone (or Square One on the Dream view); tap one to open Sprints.
+  const sprintActive = (s) => (s.steps?.length ? !s.steps.every((st) => st.completed) : !s.completed)
+  const liveSprints = (profile.sprints || []).filter(sprintActive)
+  const roadSprints = goal ? liveSprints.filter((s) => s.linkedGoalId === goal.id) : liveSprints.filter((s) => !s.linkedGoalId)
+  const squareOnePoint = { x: W / 2, y: geo.height - PAD_BOTTOM }
+  let sprintAnchor = squareOnePoint
+  if (goal) {
+    const fi = nodes.findIndex((n) => n.type === 'step' && stepStatusOf(n.milestone.id, n.step.id) === 'current')
+    sprintAnchor = nodePoints[fi] || nodePoints[nodePoints.length - 1] || squareOnePoint
   }
 
   return (
@@ -398,6 +427,31 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
             <Text style={{ fontSize: 30 }}>{pct >= 100 ? '🏆' : '✦'}</Text>
             <Text style={[styles.summitLabel, { color: C.amber }]}>{goal ? goal.title : 'The Dream'}</Text>
           </Pressable>
+
+          {/* Active sprints — small ⚡ pins stacked just up-road from the current
+              stepping stone. Up to three show; a "+N" pin covers the rest. Every
+              pin taps through to the Sprints tab. */}
+          {roadSprints.slice(0, 3).map((s, i) => {
+            const clr = goal ? accent : C.amber
+            const due = sprintDueLabel(s.dueDate)
+            const pinLeft = Math.max(8, Math.min(sprintAnchor.x - 80, W - 168))
+            return (
+              <View key={s.id} pointerEvents="box-none" style={{ position: 'absolute', top: sprintAnchor.y - 46 - i * 26, left: pinLeft, width: 160, alignItems: 'center' }}>
+                <Pressable onPress={onOpenSprints} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 160, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8, backgroundColor: clr + '24', borderWidth: 1, borderColor: clr + '5A' }}>
+                  <Zap size={10} color={clr} strokeWidth={2.4} fill={clr} />
+                  <Text numberOfLines={1} style={{ fontFamily: F.semibold, fontSize: 10, color: C.ink2, flexShrink: 1 }}>{s.title}</Text>
+                  {!!due && <Text style={{ fontFamily: F.bold, fontSize: 9, color: clr }}>· {due}</Text>}
+                </Pressable>
+              </View>
+            )
+          })}
+          {roadSprints.length > 3 && (
+            <View pointerEvents="box-none" style={{ position: 'absolute', top: sprintAnchor.y - 46 - 3 * 26, left: Math.max(8, Math.min(sprintAnchor.x - 80, W - 168)), width: 160, alignItems: 'center' }}>
+              <Pressable onPress={onOpenSprints} hitSlop={6} style={{ borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: (goal ? accent : C.amber) + '18', borderWidth: 1, borderColor: (goal ? accent : C.amber) + '45' }}>
+                <Text style={{ fontFamily: F.bold, fontSize: 9.5, color: goal ? accent : C.amber }}>+{roadSprints.length - 3} more sprint{roadSprints.length - 3 === 1 ? '' : 's'}</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
         </Animated.ScrollView>
       </View>

@@ -711,7 +711,7 @@ export default function App() {
           <ErrorBoundary key={`${tab}-${boundaryKey}`} onReset={() => setBoundaryKey((k) => k + 1)}>
             <TabFade tabKey={tab}>
               {tab === 'dashboard' && <Dashboard profile={p} onUpdate={updateProfile} onOpenSettings={() => setShowSettings(true)} onOpenCoach={() => setTab('coach')} onOpenPlans={openPlans} />}
-              {tab === 'roadmap' && <Roadmap profile={p} onUpdate={updateProfile} onRedoGoal={setEditingGoal} />}
+              {tab === 'roadmap' && <Roadmap profile={p} onUpdate={updateProfile} onRedoGoal={setEditingGoal} onOpenSprints={() => setTab('sprints')} />}
               {tab === 'sprints' && <Sprints profile={p} onUpdate={updateProfile} />}
               {tab === 'community' && <Social profile={p} reloadKey={socialReload} onOpenDMs={() => setShowDMs(true)} onOpenAddFriends={() => setShowAddFriends(true)} onMessageUser={(id) => { setDmUserId(id); setShowDMs(true) }} />}
               {tab === 'coach' && <CoachChat profile={p} onUpdate={updateProfile} onOpenPlans={openPlans} />}
