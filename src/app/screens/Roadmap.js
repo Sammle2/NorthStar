@@ -4,7 +4,7 @@ import Svg, { Circle, Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-
 import { ChevronRight, RotateCcw } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
-import { goalDurationMonths, recomputeGoal, shortStepLabel } from '../aiEngine'
+import { recomputeGoal, shortStepLabel } from '../aiEngine'
 import StarField from '../components/StarField'
 
 // "The Path" — the winding road. Square One at the bottom, the summit at the top.
@@ -427,15 +427,13 @@ function ProgressRing({ pct = 0, color, size = 14 }) {
   )
 }
 
-// Timeline switcher — a Day 0 → horizon time axis (ticks accurate), the Dream star
-// marking the finish at the far right. Each goal keeps its TRUE deadline: it's a
-// row below the axis whose right edge lands on its finish month, with a progress
-// ring showing how far it is to done and its %. Goals that share a deadline (all of
-// Max's are 12-month) line up in a tidy column under that point instead of being
-// nudged off their real position. Tapping a row selects it: onSelect(g.id | 'dream').
-const TL_AXIS_Y = 16
-const TL_ROW_TOP = 30
-const TL_ROW_H = 21
+// Timeline switcher — one progress bar per goal. Each goal's ring sits where the
+// goal actually is on the way to the Dream: pct% of the distance along its bar
+// toward the star (0% = the start, 100% = at the star). The ring slides right as
+// the goal's progress climbs. Rows stay separated (one per goal). Tapping a row
+// selects it: onSelect(g.id | 'dream').
+const TL_ROW_TOP = 28
+const TL_ROW_H = 22
 const TL_RING = 14
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(v, hi))
 
@@ -443,63 +441,46 @@ function TimelineSwitcher({ goals, view, onSelect }) {
   // Measure the row itself (same trick as the road below) — on web the app lives
   // in a fixed 375px frame, so the window width can't be trusted.
   const [w, setW] = useState(0)
-  const T = Math.max(12, ...goals.map(goalDurationMonths))
-  // Ticks along the axis. The horizon endpoint is marked by the Dream star, so we
-  // don't draw a tick that would sit underneath it.
-  const ticks = [0, 3, 6, 9, 12, 18, 24].filter((m) => m < T)
-  const dreamX = w > 0 ? w - 15 : 0
-  // Goals ordered by deadline (then progress) — each becomes one row. The row is as
-  // one per goal, ordered by deadline then progress; the ring lands on the
-  // deadline month so same-deadline goals stack in one column under the finish.
+  // Furthest-along first. Ring position = live progress, so it moves as pct updates.
   const rows = goals
-    .map((g) => ({ id: g.id, title: g.title, color: CATEGORY_COLORS[g.category] || C.amber, pct: Math.round(g.progress || 0), months: goalDurationMonths(g) }))
-    .sort((a, b) => a.months - b.months || b.pct - a.pct)
-  const H = TL_ROW_TOP + Math.max(1, rows.length) * TL_ROW_H + 2
+    .map((g) => ({ id: g.id, title: g.title, color: CATEGORY_COLORS[g.category] || C.amber, pct: clampN(Math.round(g.progress || 0), 0, 100) }))
+    .sort((a, b) => b.pct - a.pct)
+  const H = TL_ROW_TOP + Math.max(1, rows.length) * TL_ROW_H + 6
+  const dreamX = w > 0 ? w - 12 : 0          // the star (the finish) at the far right
+  const titleW = clampN(w * 0.34, 92, w * 0.44)
+  const pctW = 26
+  const barStart = titleW + 6 + pctW + 8     // bars begin after the title + % columns
+  const barEnd = dreamX - 12                 // …and end just shy of the star
 
   return (
     <View style={{ height: H, marginHorizontal: 24, marginTop: 6, marginBottom: 4 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
       {w > 0 && (
         <>
-          {/* Time axis + ticks */}
-          <View style={{ position: 'absolute', left: 0, right: 0, top: TL_AXIS_Y, height: 1, backgroundColor: C.lineStrong }} />
-          {ticks.map((m) => (
-            <React.Fragment key={m}>
-              <View style={{ position: 'absolute', left: (m / T) * w, top: TL_AXIS_Y - 4, width: 1, height: 4, backgroundColor: C.lineStrong }} />
-              <Text style={{ position: 'absolute', left: clampN((m / T) * w - 20, -4, w - 36), top: 0, width: 40, fontFamily: F.medium, fontSize: 9, lineHeight: 12, color: C.faint2, textAlign: 'center' }}>
-                {m === 0 ? 'Day 0' : `${m}mo`}
-              </Text>
-            </React.Fragment>
-          ))}
-          {/* The Dream — the finish line at the far right */}
-          <Pressable onPress={() => onSelect('dream')} hitSlop={6} style={{ position: 'absolute', left: dreamX - 15, top: TL_AXIS_Y - 15, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: view === 'dream' ? C.amber : C.lineStrong }}>
-            <Text style={{ fontSize: 14, color: C.amber, opacity: view === 'dream' ? 1 : 0.65 }}>✦</Text>
+          {/* The finish line every bar runs toward, with the Dream star on top */}
+          <View pointerEvents="none" style={{ position: 'absolute', left: dreamX, top: TL_ROW_TOP - 3, width: 1, height: rows.length * TL_ROW_H + 2, backgroundColor: C.lineMid }} />
+          <Pressable onPress={() => onSelect('dream')} hitSlop={6} style={{ position: 'absolute', left: dreamX - 13, top: 0, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: view === 'dream' ? C.amber : C.lineStrong }}>
+            <Text style={{ fontSize: 13, color: C.amber, opacity: view === 'dream' ? 1 : 0.65 }}>✦</Text>
           </Pressable>
-          {/* Goal rows — one per goal. The progress RING sits ON the goal's true
-              deadline on the axis (a faint drop-line ties it up to the tick), and
-              the title flows onto whichever side has more room: to the LEFT for
-              late deadlines (ring near the finish), to the RIGHT for early ones.
-              Rows stay in separate stacked lanes, so same-deadline goals never
-              overlap. */}
+          {/* One progress bar per goal */}
           {rows.map((r, i) => {
             const on = view === r.id
-            // Ring centre = the deadline month, clamped so it clears the Dream
-            // star at the far right and never leaves the frame.
-            const cx = clampN((r.months / T) * w, TL_RING, w - 40)
-            const top = TL_ROW_TOP + i * TL_ROW_H
-            const early = cx < w * 0.5
-            const rowStyle = early
-              ? { left: clampN(cx - TL_RING / 2, 0, w), right: 0 }
-              : { left: 0, width: cx + TL_RING / 2 + 2 }
-            const label = (
-              <Text numberOfLines={1} style={{ flex: 1, fontFamily: on ? F.semibold : F.medium, fontSize: 11, lineHeight: 14, color: on ? r.color : C.dim, textAlign: early ? 'left' : 'right' }}>{r.title}</Text>
-            )
-            const pctText = <Text style={{ fontFamily: F.semibold, fontSize: 10.5, color: on ? r.color : C.faint }}>{r.pct}%</Text>
-            const ring = <ProgressRing pct={r.pct} color={r.color} size={TL_RING} />
+            const cy = TL_ROW_TOP + i * TL_ROW_H + TL_RING / 2
+            const progressX = barStart + (r.pct / 100) * (barEnd - barStart)
+            const ringLeft = clampN(progressX - TL_RING / 2, barStart - TL_RING / 2, barEnd - TL_RING / 2)
             return (
               <React.Fragment key={r.id}>
-                <View style={{ position: 'absolute', left: cx, top: TL_AXIS_Y, width: 1, height: top + TL_RING / 2 - TL_AXIS_Y, backgroundColor: on ? r.color + '77' : C.lineMid }} />
-                <Pressable onPress={() => onSelect(r.id)} hitSlop={4} style={{ position: 'absolute', top, height: TL_RING + 4, flexDirection: 'row', alignItems: 'center', gap: 6, ...rowStyle }}>
-                  {early ? <>{ring}{label}{pctText}</> : <>{label}{pctText}{ring}</>}
+                {/* title */}
+                <Pressable onPress={() => onSelect(r.id)} hitSlop={4} style={{ position: 'absolute', left: 0, top: cy - 8, width: titleW }}>
+                  <Text numberOfLines={1} style={{ fontFamily: on ? F.semibold : F.medium, fontSize: 11, lineHeight: 15, color: on ? r.color : C.dim }}>{r.title}</Text>
+                </Pressable>
+                {/* % */}
+                <Text style={{ position: 'absolute', left: titleW + 6, top: cy - 7, width: pctW, textAlign: 'right', fontFamily: F.semibold, fontSize: 10, color: on ? r.color : C.faint }}>{r.pct}%</Text>
+                {/* track + filled portion (distance travelled) */}
+                <View pointerEvents="none" style={{ position: 'absolute', left: barStart, top: cy - 1.5, width: barEnd - barStart, height: 3, borderRadius: 2, backgroundColor: C.lineStrong }} />
+                <View pointerEvents="none" style={{ position: 'absolute', left: barStart, top: cy - 1.5, width: Math.max(0, progressX - barStart), height: 3, borderRadius: 2, backgroundColor: r.color, opacity: on ? 1 : 0.75 }} />
+                {/* the ring — parked at pct% of the way to the star */}
+                <Pressable onPress={() => onSelect(r.id)} hitSlop={8} style={{ position: 'absolute', left: ringLeft, top: cy - TL_RING / 2 }}>
+                  <ProgressRing pct={r.pct} color={r.color} size={TL_RING} />
                 </Pressable>
               </React.Fragment>
             )
