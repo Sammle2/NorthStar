@@ -756,6 +756,29 @@ export const NN_TIME_OPTIONS = [
   '1:00 PM', '3:00 PM', '5:00 PM', '6:00 PM', '8:00 PM', '9:00 PM', '10:00 PM',
 ]
 
+// A task reads best at a time that fits it — "journal before bed" belongs in
+// the evening, "eat a real breakfast" in the morning — so anchor each task to a
+// time by its wording rather than just its slot position. Ordered most- to
+// least-specific (meal / bed anchors before softer activity cues) and first
+// match wins, so "make your bed" reads as morning, not bedtime. Every time is
+// one of NN_TIME_OPTIONS so the home-screen picker highlights the match.
+const NN_TIME_RULES = [
+  ['8:00 AM', /\b(morning|wake|sunrise|breakfast|first thing|make (?:your|the) bed|cold shower)\b/],
+  ['12:00 PM', /\b(lunch|midday|noon)\b/],
+  ['6:00 PM', /\bdinner\b/],
+  ['8:00 PM', /\b(before bed|bedtime|bed|asleep|sleep|tonight|evening|night|wind down|unwind)\b/],
+  ['8:00 AM', /\b(meditat\w*|stillness|mindful\w*|breathe|breathing|affirmation|visuali[sz]e|intention|plan (?:your|the|out) day|priorit(?:y|ies) for (?:today|the day))\b/],
+  ['8:00 PM', /\b(journal\w*|reflect\w*|gratitude|review (?:your|the) day|prepare for tomorrow|plan (?:for )?tomorrow)\b/],
+  ['6:00 PM', /\b(workout|exercise|gym|training|train|run|running|jog\w*|walk\w*|move your body|yoga|stretch\w*)\b/],
+]
+
+// Infer a fitting time of day from a task's wording; null when nothing matches.
+export function inferTaskTime(title) {
+  const t = (title || '').toLowerCase()
+  for (const [time, re] of NN_TIME_RULES) if (re.test(t)) return time
+  return null
+}
+
 export function generateNonNegotiables(profile) {
   // Rotate through each goal's daily actions by calendar day, so today's three
   // tasks stay specific to the goals AND vary day to day instead of repeating
@@ -777,7 +800,23 @@ export function generateNonNegotiables(profile) {
     if (picked.length >= 3) break
     if (!picked.includes(t)) picked.push(t)
   }
-  return picked.slice(0, 3).map((title, i) => ({ id: `nn${i + 1}`, title, completed: false, time: NN_DEFAULT_TIMES[i] || '12:00 PM' }))
+  // Give each task a time that fits what it is; fall back to a morning / midday
+  // / evening spread for tasks whose wording gives no cue, without doubling up
+  // on a time a matched task already claimed.
+  const chosen = picked.slice(0, 3)
+  const inferred = chosen.map(inferTaskTime)
+  const used = new Set(inferred.filter(Boolean))
+  let s = 0
+  return chosen.map((title, i) => {
+    let time = inferred[i]
+    if (!time) {
+      while (s < NN_DEFAULT_TIMES.length && used.has(NN_DEFAULT_TIMES[s])) s++
+      time = NN_DEFAULT_TIMES[s] || NN_DEFAULT_TIMES[i] || '1:00 PM'
+      used.add(time)
+      s++
+    }
+    return { id: `nn${i + 1}`, title, completed: false, time }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
