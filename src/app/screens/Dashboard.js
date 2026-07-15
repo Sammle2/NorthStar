@@ -4,7 +4,7 @@ import { Bell, BookOpen, CheckCircle2, ChevronRight, Circle, ClipboardList, Cloc
 import { C, F } from '../tokens'
 import GlowProgress from '../components/GlowProgress'
 import StreakBadge from '../components/StreakBadge'
-import { FacetedStar } from '../components/StarMark'
+import { SparkStar } from '../components/StarMark'
 import { COACH_MESSAGES, NN_TIME_OPTIONS, generateNonNegotiables, planKindLabel, planProgress } from '../aiEngine'
 import { currentStreak, getGreeting, todayKey, yesterdayKey } from '../store'
 
@@ -246,7 +246,7 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
           style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderRadius: 16, padding: 16, backgroundColor: pressed ? 'rgba(124,58,237,0.18)' : 'rgba(124,58,237,0.1)', borderWidth: 1, borderColor: pressed ? C.violet : C.lineMid })}
         >
           <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(124,58,237,0.3)' }}>
-            <FacetedStar size={17} />
+            <SparkStar size={18} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink2, lineHeight: 21 }}>{checkInMessage}</Text>

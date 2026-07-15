@@ -2,10 +2,10 @@ import React, { useEffect, useRef } from 'react'
 import { Animated, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { C } from '../tokens'
-import { FacetedStar } from './StarMark'
+import { SparkStar } from './StarMark'
 
-// The Coach: a deep-space orb holding the faceted NorthStar (logo v23) with a
-// pulsing glow, plus a green "online" dot. The star IS Nova's mark.
+// The Coach: a deep-space orb holding Nova's four-pointed spark star with a
+// pulsing glow, plus a green "online" dot. The spark IS Nova's mark.
 export default function CoachAvatar({ size = 44, showStatus = true }) {
   const glow = useRef(new Animated.Value(0)).current
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function CoachAvatar({ size = 44, showStatus = true }) {
         end={{ x: 1, y: 1 }}
         style={{ width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#000' }}
       >
-        <FacetedStar size={size * 0.96} glow />
+        <SparkStar size={size * 0.68} glow />
       </LinearGradient>
       {showStatus && (
         <View

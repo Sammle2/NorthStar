@@ -91,6 +91,73 @@ export function FacetedStar({ size = 24, shades = PURPLE_SHADES, glow = false })
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Nova's mark: a four-pointed "spark" star (the ✦ silhouette) — slim arms
+// pointing N/E/S/W with concave notches between, faceted in violet and lit from
+// the upper-left like the brand star. This is Nova's icon everywhere its avatar
+// shows; the wordmark's GoldStar is unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
+const SPARK_R = 47 // outer tip radius
+const SPARK_INNER = 15 // inner-notch radius (smaller = slimmer arms)
+const SPARK_RIM = (() => {
+  const c = 50
+  const d = SPARK_INNER / Math.SQRT2
+  const outer = [[0, -1], [1, 0], [0, 1], [-1, 0]] // N E S W tips
+  const inner = [[1, -1], [1, 1], [-1, 1], [-1, -1]] // NE SE SW NW notches
+  const pts = []
+  for (let i = 0; i < 4; i++) {
+    pts.push([c + outer[i][0] * SPARK_R, c + outer[i][1] * SPARK_R])
+    pts.push([c + inner[i][0] * d, c + inner[i][1] * d])
+  }
+  return pts
+})()
+// 8 facets, walking clockwise from the top tip. Brightest at the upper-left
+// (NW→N / W→NW), deepest shadow at the lower-right (E→SE / SE→S).
+const SPARK_SHADES = ['#a678f8', '#9061ee', '#7d4ce0', '#7038c8', '#7d4ce0', '#9061ee', '#b989fb', '#cba9ff']
+
+function sparkFacets() {
+  return SPARK_RIM.map((v, k) => {
+    const next = SPARK_RIM[(k + 1) % SPARK_RIM.length]
+    return { points: `50,50 ${v[0]},${v[1]} ${next[0]},${next[1]}`, fill: SPARK_SHADES[k] }
+  })
+}
+
+export function SparkStar({ size = 24, glow = false, style }) {
+  if (!glow) {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 100 100" style={style}>
+        {sparkFacets().map((f, i) => (
+          <Polygon key={i} points={f.points} fill={f.fill} />
+        ))}
+      </Svg>
+    )
+  }
+  // Glow variant: the spark's own silhouette, Gaussian-blurred and layered under
+  // the crisp facets — violet light radiates outward from the four points.
+  const SILHOUETTE = SPARK_RIM.map((v) => `${v[0]},${v[1]}`).join(' ')
+  return (
+    <Svg width={size} height={size} viewBox="-30 -28 160 160" style={style}>
+      <Defs>
+        <Filter id="sparkBloomWide" x="-80%" y="-80%" width="260%" height="260%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="12" />
+        </Filter>
+        <Filter id="sparkBloomMid" x="-60%" y="-60%" width="220%" height="220%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="6" />
+        </Filter>
+        <Filter id="sparkBloomTight" x="-40%" y="-40%" width="180%" height="180%">
+          <FeGaussianBlur in="SourceGraphic" stdDeviation="2.5" />
+        </Filter>
+      </Defs>
+      <Polygon points={SILHOUETTE} fill="#8b5cf6" opacity={0.9} filter="url(#sparkBloomWide)" />
+      <Polygon points={SILHOUETTE} fill="#a78bfa" opacity={0.7} filter="url(#sparkBloomMid)" />
+      <Polygon points={SILHOUETTE} fill="#d6c7ff" opacity={0.9} filter="url(#sparkBloomTight)" />
+      {sparkFacets().map((f, i) => (
+        <Polygon key={i} points={f.points} fill={f.fill} />
+      ))}
+    </Svg>
+  )
+}
+
 // The gold star that stands in for the "A" of the wordmark.
 export function GoldStar({ size = 24, glow = false, style }) {
   if (!glow) {
