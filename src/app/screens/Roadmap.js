@@ -7,6 +7,10 @@ import { CATEGORY_COLORS } from '../mockData'
 import { recomputeGoal, shortStepLabel } from '../aiEngine'
 import StarField from '../components/StarField'
 
+// The lit road + the timeline fill both animate their length, so an SVG Path that
+// takes an Animated strokeDashoffset.
+const AnimatedPath = Animated.createAnimatedComponent(Path)
+
 // "The Path" — the winding road. Square One at the bottom, the summit at the top.
 // Climbing up: each goal's three timed milestones (3 / 6 / 12 months), and the
 // little stepping stones leading to each one. Stepping stones are your day-to-day
@@ -57,6 +61,10 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   const scrollY = useRef(new Animated.Value(0)).current
   // A slow pulse for the "you are here" glow on the current milestone.
   const pulse = useRef(new Animated.Value(0)).current
+  // Drives the lit portion of the road (0–100). It GLIDES to a new value when a
+  // stepping stone is completed, but SNAPS when you switch to a different path.
+  const roadAnim = useRef(new Animated.Value(0)).current
+  const prevViewRef = useRef(view)
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -93,6 +101,14 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
   }, [goal, profile])
 
   const pct = goal ? goal.progress : dreamPct
+  useEffect(() => {
+    if (prevViewRef.current !== view) {
+      prevViewRef.current = view
+      roadAnim.setValue(pct) // different path — jump, don't glide across goals
+    } else {
+      Animated.timing(roadAnim, { toValue: pct, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+    }
+  }, [pct, view])
   const geo = useMemo(() => buildGeometry(goal ? nodes.length : 2, W), [view, nodes.length, W])
   const nodePoints = goal ? geo.points.slice(1, -1) : []
 
@@ -238,18 +254,19 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal }) {
 
             {/* The path — a single winding line you follow up toward your dream. */}
             <Path d={geo.d} stroke="rgba(167,139,250,0.30)" strokeWidth="3" fill="none" strokeLinecap="round" />
-            {/* The lit portion — how far you've come, revealed along the path from Square One. */}
-            {pct > 0 ? (
-              <Path
-                d={geo.d}
-                stroke="url(#roadFill)"
-                strokeWidth="3"
-                fill="none"
-                strokeLinecap="round"
-                pathLength={100}
-                strokeDasharray={`${pct} 100`}
-              />
-            ) : null}
+            {/* The lit portion — how far you've come, revealed along the path from
+                Square One. strokeDashoffset animates so it GLIDES forward as you
+                complete a stepping stone rather than jumping. */}
+            <AnimatedPath
+              d={geo.d}
+              stroke="url(#roadFill)"
+              strokeWidth="3"
+              fill="none"
+              strokeLinecap="round"
+              pathLength={100}
+              strokeDasharray="100 100"
+              strokeDashoffset={roadAnim.interpolate({ inputRange: [0, 100], outputRange: [100, 0] })}
+            />
           </Svg>
 
           {/* Square one */}
@@ -452,6 +469,18 @@ function TimelineSwitcher({ goals, view, onSelect }) {
   const barStart = titleW + 6 + pctW + 8     // bars begin after the title + % columns
   const barEnd = dreamX - 12                 // …and end just shy of the star
 
+  // One Animated.Value per goal holding its live pct — when a stepping stone is
+  // completed the pct changes and the fill + ring GLIDE to the new spot.
+  const animRef = useRef({}).current
+  rows.forEach((r) => { if (!animRef[r.id]) animRef[r.id] = new Animated.Value(r.pct) })
+  const pctKey = rows.map((r) => `${r.id}:${r.pct}`).join('|')
+  useEffect(() => {
+    rows.forEach((r) => {
+      Animated.timing(animRef[r.id], { toValue: r.pct, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pctKey])
+
   return (
     <View style={{ height: H, marginHorizontal: 24, marginTop: 6, marginBottom: 4 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
       {w > 0 && (
@@ -465,8 +494,9 @@ function TimelineSwitcher({ goals, view, onSelect }) {
           {rows.map((r, i) => {
             const on = view === r.id
             const cy = TL_ROW_TOP + i * TL_ROW_H + TL_RING / 2
-            const progressX = barStart + (r.pct / 100) * (barEnd - barStart)
-            const ringLeft = clampN(progressX - TL_RING / 2, barStart - TL_RING / 2, barEnd - TL_RING / 2)
+            const anim = animRef[r.id]
+            const fillW = anim.interpolate({ inputRange: [0, 100], outputRange: [0, Math.max(0, barEnd - barStart)], extrapolate: 'clamp' })
+            const ringL = anim.interpolate({ inputRange: [0, 100], outputRange: [barStart - TL_RING / 2, barEnd - TL_RING / 2], extrapolate: 'clamp' })
             return (
               <React.Fragment key={r.id}>
                 {/* title */}
@@ -475,13 +505,15 @@ function TimelineSwitcher({ goals, view, onSelect }) {
                 </Pressable>
                 {/* % */}
                 <Text style={{ position: 'absolute', left: titleW + 6, top: cy - 7, width: pctW, textAlign: 'right', fontFamily: F.semibold, fontSize: 10, color: on ? r.color : C.faint }}>{r.pct}%</Text>
-                {/* track + filled portion (distance travelled) */}
+                {/* track + animated fill (distance travelled) */}
                 <View pointerEvents="none" style={{ position: 'absolute', left: barStart, top: cy - 1.5, width: barEnd - barStart, height: 3, borderRadius: 2, backgroundColor: C.lineStrong }} />
-                <View pointerEvents="none" style={{ position: 'absolute', left: barStart, top: cy - 1.5, width: Math.max(0, progressX - barStart), height: 3, borderRadius: 2, backgroundColor: r.color, opacity: on ? 1 : 0.75 }} />
-                {/* the ring — parked at pct% of the way to the star */}
-                <Pressable onPress={() => onSelect(r.id)} hitSlop={8} style={{ position: 'absolute', left: ringLeft, top: cy - TL_RING / 2 }}>
-                  <ProgressRing pct={r.pct} color={r.color} size={TL_RING} />
-                </Pressable>
+                <Animated.View pointerEvents="none" style={{ position: 'absolute', left: barStart, top: cy - 1.5, width: fillW, height: 3, borderRadius: 2, backgroundColor: r.color, opacity: on ? 1 : 0.75 }} />
+                {/* the ring — glides to pct% of the way to the star */}
+                <Animated.View style={{ position: 'absolute', left: ringL, top: cy - TL_RING / 2 }}>
+                  <Pressable onPress={() => onSelect(r.id)} hitSlop={8}>
+                    <ProgressRing pct={r.pct} color={r.color} size={TL_RING} />
+                  </Pressable>
+                </Animated.View>
               </React.Fragment>
             )
           })}
