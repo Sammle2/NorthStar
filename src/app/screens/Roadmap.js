@@ -449,11 +449,11 @@ function TimelineSwitcher({ goals, view, onSelect }) {
   const ticks = [0, 3, 6, 9, 12, 18, 24].filter((m) => m < T)
   const dreamX = w > 0 ? w - 15 : 0
   // Goals ordered by deadline (then progress) — each becomes one row. The row is as
-  // wide as fits and ends on its finish month, so same-deadline goals right-align.
+  // one per goal, ordered by deadline then progress; the ring lands on the
+  // deadline month so same-deadline goals stack in one column under the finish.
   const rows = goals
     .map((g) => ({ id: g.id, title: g.title, color: CATEGORY_COLORS[g.category] || C.amber, pct: Math.round(g.progress || 0), months: goalDurationMonths(g) }))
     .sort((a, b) => a.months - b.months || b.pct - a.pct)
-  const rowW = clampN(w * 0.62, 140, w)
   const H = TL_ROW_TOP + Math.max(1, rows.length) * TL_ROW_H + 2
 
   return (
@@ -474,21 +474,32 @@ function TimelineSwitcher({ goals, view, onSelect }) {
           <Pressable onPress={() => onSelect('dream')} hitSlop={6} style={{ position: 'absolute', left: dreamX - 15, top: TL_AXIS_Y - 15, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: view === 'dream' ? C.amber : C.lineStrong }}>
             <Text style={{ fontSize: 14, color: C.amber, opacity: view === 'dream' ? 1 : 0.65 }}>✦</Text>
           </Pressable>
-          {/* Goal rows — one per goal, right edge on its true deadline, progress ring toward the finish */}
+          {/* Goal rows — one per goal. The progress RING sits ON the goal's true
+              deadline on the axis (a faint drop-line ties it up to the tick), and
+              the title flows onto whichever side has more room: to the LEFT for
+              late deadlines (ring near the finish), to the RIGHT for early ones.
+              Rows stay in separate stacked lanes, so same-deadline goals never
+              overlap. */}
           {rows.map((r, i) => {
             const on = view === r.id
-            const x = clampN((r.months / T) * w, 8, w) // the finish month on the axis
-            const right = clampN(x, rowW, w)
-            const left = right - rowW
+            // Ring centre = the deadline month, clamped so it clears the Dream
+            // star at the far right and never leaves the frame.
+            const cx = clampN((r.months / T) * w, TL_RING, w - 40)
             const top = TL_ROW_TOP + i * TL_ROW_H
+            const early = cx < w * 0.5
+            const rowStyle = early
+              ? { left: clampN(cx - TL_RING / 2, 0, w), right: 0 }
+              : { left: 0, width: cx + TL_RING / 2 + 2 }
+            const label = (
+              <Text numberOfLines={1} style={{ flex: 1, fontFamily: on ? F.semibold : F.medium, fontSize: 11, lineHeight: 14, color: on ? r.color : C.dim, textAlign: early ? 'left' : 'right' }}>{r.title}</Text>
+            )
+            const pctText = <Text style={{ fontFamily: F.semibold, fontSize: 10.5, color: on ? r.color : C.faint }}>{r.pct}%</Text>
+            const ring = <ProgressRing pct={r.pct} color={r.color} size={TL_RING} />
             return (
               <React.Fragment key={r.id}>
-                {/* faint drop line tying this goal to its deadline on the axis */}
-                <View style={{ position: 'absolute', left: clampN(x, 0, w - 1), top: TL_AXIS_Y, width: 1, height: top + TL_RING / 2 - TL_AXIS_Y, backgroundColor: on ? r.color + '77' : C.lineMid }} />
-                <Pressable onPress={() => onSelect(r.id)} hitSlop={4} style={{ position: 'absolute', left, top, width: rowW, height: TL_RING + 4, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                  <ProgressRing pct={r.pct} color={r.color} size={TL_RING} />
-                  <Text numberOfLines={1} style={{ flex: 1, fontFamily: on ? F.semibold : F.medium, fontSize: 11, lineHeight: 14, color: on ? r.color : C.dim }}>{r.title}</Text>
-                  <Text style={{ fontFamily: F.semibold, fontSize: 10.5, color: on ? r.color : C.faint }}>{r.pct}%</Text>
+                <View style={{ position: 'absolute', left: cx, top: TL_AXIS_Y, width: 1, height: top + TL_RING / 2 - TL_AXIS_Y, backgroundColor: on ? r.color + '77' : C.lineMid }} />
+                <Pressable onPress={() => onSelect(r.id)} hitSlop={4} style={{ position: 'absolute', top, height: TL_RING + 4, flexDirection: 'row', alignItems: 'center', gap: 6, ...rowStyle }}>
+                  {early ? <>{ring}{label}{pctText}</> : <>{label}{pctText}{ring}</>}
                 </Pressable>
               </React.Fragment>
             )
