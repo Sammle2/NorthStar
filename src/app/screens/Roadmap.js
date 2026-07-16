@@ -1,23 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import Svg, { Circle, Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-native-svg'
+import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGrad, Path, RadialGradient, Stop } from 'react-native-svg'
 import { ChevronRight, RotateCcw, Zap } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
 import { recomputeGoal, shortStepLabel } from '../aiEngine'
 import StarField from '../components/StarField'
+import { GoldStar } from '../components/StarMark'
 
-// The lit road + the timeline fill both animate their length, so an SVG Path that
-// takes an Animated strokeDashoffset.
+// The lit road + the celestial map's goal-lines animate their length, so an SVG
+// Path that takes an Animated strokeDashoffset.
 const AnimatedPath = Animated.createAnimatedComponent(Path)
 
-// "The Path" — the winding road. Square One at the bottom, the summit at the top.
-// Climbing up: each goal's three timed milestones (3 / 6 / 12 months), and the
-// little stepping stones leading to each one. Stepping stones are your day-to-day
-// wins — tap to complete them; a milestone lights up once all its stones are done.
-// Editing the milestones themselves happens only in Redo (GoalEditor).
-// Up top, a timeline switcher: each goal sits at its timeframeMonths along a
-// Day 0 → horizon axis, with the Dream star at the far end.
+// The Roadmap has two faces:
+//  · THE DREAM (overview) — a celestial map: every goal is a planet with a line
+//    running up to the North Star (the dream). Each line lights up to the goal's
+//    progress; tap a planet to walk that goal's path.
+//  · A GOAL's path — the winding road. Square One at the bottom, the summit at
+//    the top; timed milestones (3 / 6 / 12 months) and the stepping stones
+//    leading to each one. Tap a stone to complete it; a milestone lights up once
+//    all its stones are done. Editing milestones happens only in Redo (GoalEditor).
+//    A slim constellation strip up top hops between paths and back to the Dream.
 const SEG_H = 150
 const PAD_TOP = 130
 const PAD_BOTTOM = 110
@@ -55,6 +58,19 @@ function sprintDueLabel(iso) {
   if (d < 0) return 'late'
   if (d === 0) return 'today'
   return `${d}d`
+}
+
+// One active sprint as a small tappable ⚡ pill — used on the road (near the
+// current stone) and on the celestial map (loose sprints, near home).
+function SprintPill({ sprint, color, onPress }) {
+  const due = sprintDueLabel(sprint.dueDate)
+  return (
+    <Pressable onPress={onPress} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 160, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8, backgroundColor: color + '24', borderWidth: 1, borderColor: color + '5A' }}>
+      <Zap size={10} color={color} strokeWidth={2.4} fill={color} />
+      <Text numberOfLines={1} style={{ fontFamily: F.semibold, fontSize: 10, color: C.ink2, flexShrink: 1 }}>{sprint.title}</Text>
+      {!!due && <Text style={{ fontFamily: F.bold, fontSize: 9, color }}>· {due}</Text>}
+    </Pressable>
+  )
 }
 
 export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }) {
@@ -99,7 +115,9 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
     }
   }, [view, goal])
   const dreamPct = useMemo(
-    () => (goals.length ? Math.round(goals.reduce((s, g) => s + g.progress, 0) / goals.length) : 0),
+    // Sanitize each goal's progress (legacy/AI-written values can be missing or
+    // out of range) — this average renders permanently under the North Star.
+    () => (goals.length ? clampN(Math.round(goals.reduce((s, g) => s + clampN(Math.round(g.progress || 0), 0, 100), 0) / goals.length), 0, 100) : 0),
     [profile],
   )
   const accent = goal ? CATEGORY_COLORS[goal.category] || C.amber : C.amber
@@ -120,6 +138,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
     if (prevViewRef.current !== view) {
       prevViewRef.current = view
       roadAnim.setValue(pct) // different path — jump, don't glide across goals
+      scrollY.setValue(0) // fresh view starts at the top — reset the parallax baseline
     } else {
       Animated.timing(roadAnim, { toValue: pct, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
     }
@@ -180,19 +199,25 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
     onUpdate({ ...profile, goals: goals.map((g) => (g.id === goal.id ? updatedGoal : g)) })
   }
 
-  // ── Active sprints, pinned to the road near where you are now ──────────────
-  // On a goal's path we show that goal's sprints; on the Dream overview, the
-  // ones not tied to any goal. Each pin rides just up-road from the current
-  // stepping stone (or Square One on the Dream view); tap one to open Sprints.
+  // ── Active sprints ──────────────────────────────────────────────────────────
+  // On a goal's path, that goal's sprints ride the road just up-road from the
+  // current stepping stone. Sprints not tied to any goal live on the celestial
+  // map instead (handled there). Every pin taps through to the Sprints tab.
   const sprintActive = (s) => (s.steps?.length ? !s.steps.every((st) => st.completed) : !s.completed)
   const liveSprints = (profile.sprints || []).filter(sprintActive)
-  const roadSprints = goal ? liveSprints.filter((s) => s.linkedGoalId === goal.id) : liveSprints.filter((s) => !s.linkedGoalId)
+  const roadSprints = goal ? liveSprints.filter((s) => s.linkedGoalId === goal.id) : []
   const squareOnePoint = { x: W / 2, y: geo.height - PAD_BOTTOM }
   let sprintAnchor = squareOnePoint
   if (goal) {
     const fi = nodes.findIndex((n) => n.type === 'step' && stepStatusOf(n.milestone.id, n.step.id) === 'current')
     sprintAnchor = nodePoints[fi] || nodePoints[nodePoints.length - 1] || squareOnePoint
   }
+
+  // The celestial map's content height (mirrors CelestialMap's layout math) so
+  // the dream view's parallax spans the REAL scrollable height — the phantom
+  // 2-node road geo would freeze the stars early on tall maps (many goals).
+  const looseSprintCount = liveSprints.filter((s) => !s.linkedGoalId).length
+  const mapH = Math.max(600, (goals.length ? 288 + (goals.length - 1) * 148 : 128) + 160 + (looseSprintCount ? 30 + Math.min(looseSprintCount, 4) * 26 : 0))
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }} onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}>
@@ -235,9 +260,10 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
         )}
       </View>
 
-      {/* Path switcher — a timeline from Day 0 to the horizon: tap a goal's node
-          (or the Dream star at the far end) to switch which path is shown below. */}
-      <TimelineSwitcher goals={goals} view={view} onSelect={(id) => { setView(id); setSelected(null); setExpandedStep(null) }} />
+      {/* On a goal's path, a slim constellation strip hops between paths and back
+          to the Dream. The Dream overview needs no switcher — the map below IS
+          the switcher (tap a planet). */}
+      {goal && <ConstellationStrip goals={goals} view={view} onSelect={(id) => { setView(id); setSelected(null); setExpandedStep(null) }} />}
 
       <View style={{ flex: 1 }}>
         {/* Parallax starfield — drifts up slower than the road as you scroll, giving depth. */}
@@ -252,7 +278,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
             transform: [
               {
                 translateY: scrollY.interpolate({
-                  inputRange: [0, Math.max(1, geo.height)],
+                  inputRange: [0, Math.max(1, goal ? geo.height : mapH)],
                   outputRange: [0, -150],
                   extrapolate: 'clamp',
                 }),
@@ -263,7 +289,13 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
           <StarField count={70} seed={goal ? 21 : 7} maxTop={100} />
         </Animated.View>
 
+        {goal ? (
         <Animated.ScrollView
+          // Remount per path: a goal→goal hop then starts at offset 0 (matching
+          // the scrollY reset) and the mount-time scrollToEnd re-syncs both —
+          // otherwise the reused scroller keeps its old offset and the parallax
+          // starfield jumps out of step with it.
+          key={view}
           ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 120 }}
@@ -415,45 +447,44 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
 
           {/* Summit */}
           <Pressable
-            onPress={() =>
-              setSelected(
-                goal
-                  ? { horizon: 'The summit', title: goal.title, detail: `${pct}% of the path is lit`, lit: pct >= 100, accent }
-                  : { horizon: 'The dream', title: 'The Dream', detail: `${dreamPct}% of the whole journey is lit`, lit: dreamPct >= 100, accent: C.amber },
-              )
-            }
+            onPress={() => setSelected({ horizon: 'The summit', title: goal.title, detail: `${pct}% of the path is lit`, lit: pct >= 100, accent })}
             style={[styles.marker, { top: PAD_TOP - 34, left: W / 2 - 110, width: 220 }]}
           >
             <Text style={{ fontSize: 30 }}>{pct >= 100 ? '🏆' : '✦'}</Text>
-            <Text style={[styles.summitLabel, { color: C.amber }]}>{goal ? goal.title : 'The Dream'}</Text>
+            <Text style={[styles.summitLabel, { color: C.amber }]}>{goal.title}</Text>
           </Pressable>
 
           {/* Active sprints — small ⚡ pins stacked just up-road from the current
               stepping stone. Up to three show; a "+N" pin covers the rest. Every
               pin taps through to the Sprints tab. */}
-          {roadSprints.slice(0, 3).map((s, i) => {
-            const clr = goal ? accent : C.amber
-            const due = sprintDueLabel(s.dueDate)
-            const pinLeft = Math.max(8, Math.min(sprintAnchor.x - 80, W - 168))
-            return (
-              <View key={s.id} pointerEvents="box-none" style={{ position: 'absolute', top: sprintAnchor.y - 46 - i * 26, left: pinLeft, width: 160, alignItems: 'center' }}>
-                <Pressable onPress={onOpenSprints} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 160, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8, backgroundColor: clr + '24', borderWidth: 1, borderColor: clr + '5A' }}>
-                  <Zap size={10} color={clr} strokeWidth={2.4} fill={clr} />
-                  <Text numberOfLines={1} style={{ fontFamily: F.semibold, fontSize: 10, color: C.ink2, flexShrink: 1 }}>{s.title}</Text>
-                  {!!due && <Text style={{ fontFamily: F.bold, fontSize: 9, color: clr }}>· {due}</Text>}
-                </Pressable>
-              </View>
-            )
-          })}
+          {roadSprints.slice(0, 3).map((s, i) => (
+            <View key={s.id} pointerEvents="box-none" style={{ position: 'absolute', top: sprintAnchor.y - 46 - i * 26, left: Math.max(8, Math.min(sprintAnchor.x - 80, W - 168)), width: 160, alignItems: 'center' }}>
+              <SprintPill sprint={s} color={accent} onPress={onOpenSprints} />
+            </View>
+          ))}
           {roadSprints.length > 3 && (
             <View pointerEvents="box-none" style={{ position: 'absolute', top: sprintAnchor.y - 46 - 3 * 26, left: Math.max(8, Math.min(sprintAnchor.x - 80, W - 168)), width: 160, alignItems: 'center' }}>
-              <Pressable onPress={onOpenSprints} hitSlop={6} style={{ borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: (goal ? accent : C.amber) + '18', borderWidth: 1, borderColor: (goal ? accent : C.amber) + '45' }}>
-                <Text style={{ fontFamily: F.bold, fontSize: 9.5, color: goal ? accent : C.amber }}>+{roadSprints.length - 3} more sprint{roadSprints.length - 3 === 1 ? '' : 's'}</Text>
+              <Pressable onPress={onOpenSprints} hitSlop={6} style={{ borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: accent + '18', borderWidth: 1, borderColor: accent + '45' }}>
+                <Text style={{ fontFamily: F.bold, fontSize: 9.5, color: accent }}>+{roadSprints.length - 3} more sprint{roadSprints.length - 3 === 1 ? '' : 's'}</Text>
               </Pressable>
             </View>
           )}
         </View>
         </Animated.ScrollView>
+        ) : (
+          <CelestialMap
+            goals={goals}
+            dreamPct={dreamPct}
+            sprints={liveSprints}
+            W={W}
+            H={mapH}
+            pulse={pulse}
+            scrollY={scrollY}
+            onSelectGoal={(id) => { setView(id); setSelected(null); setExpandedStep(null) }}
+            onStarPress={() => setSelected({ horizon: 'The dream', title: 'The Dream', detail: `${dreamPct}% of the whole journey is lit`, lit: dreamPct >= 100, accent: C.amber })}
+            onOpenSprints={onOpenSprints}
+          />
+        )}
       </View>
 
       {/* Detail card */}
@@ -498,33 +529,89 @@ function ProgressRing({ pct = 0, color, size = 14 }) {
   )
 }
 
-// Timeline switcher — one progress bar per goal. Each goal's ring sits where the
-// goal actually is on the way to the Dream: pct% of the distance along its bar
-// toward the star (0% = the start, 100% = at the star). The ring slides right as
-// the goal's progress climbs. Rows stay separated (one per goal). Tapping a row
-// selects it: onSelect(g.id | 'dream').
-const TL_ROW_TOP = 28
-const TL_ROW_H = 22
-const TL_RING = 14
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(v, hi))
 
-function TimelineSwitcher({ goals, view, onSelect }) {
-  // Measure the row itself (same trick as the road below) — on web the app lives
-  // in a fixed 375px frame, so the window width can't be trusted.
-  const [w, setW] = useState(0)
-  // Furthest-along first. Ring position = live progress, so it moves as pct updates.
-  const rows = goals
-    .map((g) => ({ id: g.id, title: g.title, color: CATEGORY_COLORS[g.category] || C.amber, pct: clampN(Math.round(g.progress || 0), 0, 100) }))
-    .sort((a, b) => b.pct - a.pct)
-  const H = TL_ROW_TOP + Math.max(1, rows.length) * TL_ROW_H + 6
-  const dreamX = w > 0 ? w - 12 : 0          // the star (the finish) at the far right
-  const titleW = clampN(w * 0.34, 92, w * 0.44)
-  const pctW = 26
-  const barStart = titleW + 6 + pctW + 8     // bars begin after the title + % columns
-  const barEnd = dreamX - 12                 // …and end just shy of the star
+// Lighten (+amt) or darken (−amt) a #rrggbb hex — shades a planet's sphere from
+// its category colour.
+function shade(hex, amt) {
+  const h = (hex || C.amber).replace('#', '')
+  const full = h.length === 3 ? h.split('').map((ch) => ch + ch).join('') : h
+  const n = parseInt(full, 16)
+  const f = (v) => Math.max(0, Math.min(255, Math.round(v + amt)))
+  return `#${((f((n >> 16) & 255) << 16) | (f((n >> 8) & 255) << 8) | f(n & 255)).toString(16).padStart(6, '0')}`
+}
 
-  // One Animated.Value per goal holding its live pct — when a stepping stone is
-  // completed the pct changes and the fill + ring GLIDE to the new spot.
+// A planet's SVG canvas is padded beyond its sphere so its ring / moon fit.
+const planetCanvas = (size) => size + Math.ceil(size * 0.35) * 2
+
+// A goal as a small planet: a radial-gradient sphere in the goal's category
+// colour, lit from the upper-left like everything else in this sky. Each index
+// gets a signature feature — craters, a ring, or a moon — so the planets read
+// as distinct worlds. `uid` keeps gradient ids unique per mounted instance.
+function Planet({ size, color, idx, uid }) {
+  const cv = planetCanvas(size)
+  const c = cv / 2
+  const r = size / 2
+  const gid = `pg-${uid}`
+  const deco = idx % 3
+  return (
+    <Svg width={cv} height={cv}>
+      <Defs>
+        <RadialGradient id={gid} cx="35%" cy="30%" r="80%">
+          <Stop offset="0" stopColor={shade(color, 85)} />
+          <Stop offset="0.45" stopColor={color} />
+          <Stop offset="1" stopColor={shade(color, -95)} />
+        </RadialGradient>
+      </Defs>
+      <Circle cx={c} cy={c} r={r} fill={`url(#${gid})`} />
+      {deco === 0 && (
+        <>
+          <Circle cx={c + r * 0.28} cy={c + r * 0.2} r={r * 0.2} fill="rgba(0,0,0,0.22)" />
+          <Circle cx={c - r * 0.24} cy={c + r * 0.42} r={r * 0.13} fill="rgba(0,0,0,0.18)" />
+          <Circle cx={c + r * 0.05} cy={c - r * 0.38} r={r * 0.11} fill="rgba(255,255,255,0.14)" />
+        </>
+      )}
+      {deco === 1 && (
+        <Ellipse cx={c} cy={c} rx={r * 1.55} ry={r * 0.42} fill="none" stroke={shade(color, 45)} strokeOpacity={0.55} strokeWidth={Math.max(1.2, size * 0.05)} transform={`rotate(-16 ${c} ${c})`} />
+      )}
+      {deco === 2 && <Circle cx={c + r * 1.28} cy={c - r * 0.95} r={Math.max(1.6, r * 0.16)} fill={shade(color, 100)} opacity={0.9} />}
+    </Svg>
+  )
+}
+
+// THE DREAM overview — a celestial map. The North Star (the dream) shines at the
+// top; every goal is a planet below with a line running up to it. Each line
+// lights up from the planet toward the star to the goal's progress (and GLIDES
+// when it changes, like the road). Tap a planet to walk that goal's path; tap
+// the star for the dream card. Goal-linked sprints show as a ⚡ satellite on
+// their planet; sprints not tied to a goal float near home at the bottom.
+function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelectGoal, onStarPress, onOpenSprints }) {
+  const STAR_Y = 128
+  const P_Y0 = 288
+  const P_DY = 148
+  const rows = goals.map((g, i) => {
+    // Zigzag down from the star with a touch of deterministic jitter, so the
+    // planets scatter like a constellation instead of sitting on rails.
+    const xf = (i % 2 === 0 ? 0.28 : 0.72) + (((i * 53) % 5) - 2) / 100
+    return {
+      id: g.id,
+      title: g.title,
+      color: CATEGORY_COLORS[g.category] || C.amber,
+      pct: clampN(Math.round(g.progress || 0), 0, 100),
+      x: Math.round(xf * W),
+      y: P_Y0 + i * P_DY,
+      size: [42, 34, 38, 32, 40][i % 5],
+      sprints: sprints.filter((s) => s.linkedGoalId === g.id).length,
+    }
+  })
+  const loose = sprints.filter((s) => !s.linkedGoalId)
+  // H (content height) arrives from Roadmap, which mirrors this layout's math so
+  // the parallax starfield can span the same height.
+  const sx = W / 2
+  const sy = STAR_Y
+
+  // One Animated.Value per goal-line — glides to the new pct when a stepping
+  // stone lands, exactly like the road's lit portion.
   const animRef = useRef({}).current
   rows.forEach((r) => { if (!animRef[r.id]) animRef[r.id] = new Animated.Value(r.pct) })
   const pctKey = rows.map((r) => `${r.id}:${r.pct}`).join('|')
@@ -536,43 +623,151 @@ function TimelineSwitcher({ goals, view, onSelect }) {
   }, [pctKey])
 
   return (
-    <View style={{ height: H, marginHorizontal: 24, marginTop: 6, marginBottom: 4 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      {w > 0 && (
-        <>
-          {/* The finish line every bar runs toward, with the Dream star on top */}
-          <View pointerEvents="none" style={{ position: 'absolute', left: dreamX, top: TL_ROW_TOP - 3, width: 1, height: rows.length * TL_ROW_H + 2, backgroundColor: C.lineMid }} />
-          <Pressable onPress={() => onSelect('dream')} hitSlop={6} style={{ position: 'absolute', left: dreamX - 13, top: 0, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: view === 'dream' ? C.amber : C.lineStrong }}>
-            <Text style={{ fontSize: 13, color: C.amber, opacity: view === 'dream' ? 1 : 0.65 }}>✦</Text>
-          </Pressable>
-          {/* One progress bar per goal */}
-          {rows.map((r, i) => {
-            const on = view === r.id
-            const cy = TL_ROW_TOP + i * TL_ROW_H + TL_RING / 2
-            const anim = animRef[r.id]
-            const fillW = anim.interpolate({ inputRange: [0, 100], outputRange: [0, Math.max(0, barEnd - barStart)], extrapolate: 'clamp' })
-            const ringL = anim.interpolate({ inputRange: [0, 100], outputRange: [barStart - TL_RING / 2, barEnd - TL_RING / 2], extrapolate: 'clamp' })
+    <Animated.ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ paddingBottom: 120 }}
+      scrollEventThrottle={16}
+      onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+    >
+      <View style={{ width: W, alignSelf: 'center', height: H }}>
+        <Svg width={W} height={H} style={StyleSheet.absoluteFill}>
+          <Defs>
+            {rows.map((r) => (
+              <SvgGrad key={r.id} id={`ll-${r.id}`} x1={r.x} y1={r.y} x2={sx} y2={sy} gradientUnits="userSpaceOnUse">
+                <Stop offset="0" stopColor={r.color} />
+                <Stop offset="1" stopColor={C.amber} />
+              </SvgGrad>
+            ))}
+          </Defs>
+          {rows.map((r) => {
+            const my = (r.y + sy) / 2
+            const d = `M ${r.x} ${r.y} C ${r.x} ${my}, ${sx} ${my}, ${sx} ${sy}`
             return (
               <React.Fragment key={r.id}>
-                {/* title */}
-                <Pressable onPress={() => onSelect(r.id)} hitSlop={4} style={{ position: 'absolute', left: 0, top: cy - 8, width: titleW }}>
-                  <Text numberOfLines={1} style={{ fontFamily: on ? F.semibold : F.medium, fontSize: 11, lineHeight: 15, color: on ? r.color : C.dim }}>{r.title}</Text>
-                </Pressable>
-                {/* % */}
-                <Text style={{ position: 'absolute', left: titleW + 6, top: cy - 7, width: pctW, textAlign: 'right', fontFamily: F.semibold, fontSize: 10, color: on ? r.color : C.faint }}>{r.pct}%</Text>
-                {/* track + animated fill (distance travelled) */}
-                <View pointerEvents="none" style={{ position: 'absolute', left: barStart, top: cy - 1.5, width: barEnd - barStart, height: 3, borderRadius: 2, backgroundColor: C.lineStrong }} />
-                <Animated.View pointerEvents="none" style={{ position: 'absolute', left: barStart, top: cy - 1.5, width: fillW, height: 3, borderRadius: 2, backgroundColor: r.color, opacity: on ? 1 : 0.75 }} />
-                {/* the ring — glides to pct% of the way to the star */}
-                <Animated.View style={{ position: 'absolute', left: ringL, top: cy - TL_RING / 2 }}>
-                  <Pressable onPress={() => onSelect(r.id)} hitSlop={8}>
-                    <ProgressRing pct={r.pct} color={r.color} size={TL_RING} />
-                  </Pressable>
-                </Animated.View>
+                {/* the line to the dream, and the lit portion you've climbed */}
+                <Path d={d} stroke="rgba(167,139,250,0.22)" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                <AnimatedPath
+                  d={d}
+                  stroke={`url(#ll-${r.id})`}
+                  strokeWidth="2.5"
+                  fill="none"
+                  strokeLinecap="round"
+                  pathLength={100}
+                  strokeDasharray="100 100"
+                  strokeDashoffset={animRef[r.id].interpolate({ inputRange: [0, 100], outputRange: [100, 0] })}
+                />
               </React.Fragment>
             )
           })}
-        </>
-      )}
+        </Svg>
+
+        {/* The North Star — the dream itself, breathing */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: sx - 34,
+            top: sy - 34,
+            width: 68,
+            height: 68,
+            borderRadius: 34,
+            backgroundColor: C.amber,
+            opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.06, 0.16] }),
+            transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }) }],
+          }}
+        />
+        <Pressable onPress={onStarPress} hitSlop={10} style={{ position: 'absolute', left: sx - 33, top: sy - 33, width: 66, height: 66, alignItems: 'center', justifyContent: 'center' }}>
+          <GoldStar size={66} glow />
+        </Pressable>
+        <Text style={{ position: 'absolute', top: sy + 44, left: sx - 90, width: 180, textAlign: 'center', fontFamily: F.semibold, fontSize: 11, color: C.amber }}>
+          {dreamPct}% of the journey
+        </Text>
+
+        {/* The planets — one per goal */}
+        {rows.map((r, i) => {
+          const cv = planetCanvas(r.size)
+          const complete = r.pct >= 100
+          return (
+            <View key={r.id} pointerEvents="box-none" style={{ position: 'absolute', left: r.x - 70, top: r.y - cv / 2, width: 140, alignItems: 'center' }}>
+              <Pressable onPress={() => onSelectGoal(r.id)} hitSlop={8} style={{ alignItems: 'center' }}>
+                <View style={[{ width: cv, height: cv, borderRadius: cv / 2, alignItems: 'center', justifyContent: 'center' }, complete && { shadowColor: r.color, shadowOpacity: 0.9, shadowRadius: 14, shadowOffset: { width: 0, height: 0 } }]}>
+                  <Planet size={r.size} color={r.color} idx={i} uid={`m-${r.id}`} />
+                  {/* how far this world has come */}
+                  <View pointerEvents="none" style={{ position: 'absolute' }}>
+                    <ProgressRing pct={r.pct} color={r.color} size={r.size + 14} />
+                  </View>
+                  {/* active sprints on this goal orbit as a ⚡ satellite */}
+                  {r.sprints > 0 && (
+                    <Pressable onPress={onOpenSprints} hitSlop={6} style={{ position: 'absolute', top: 0, right: 6, width: 18, height: 18, borderRadius: 9, backgroundColor: C.bg, borderWidth: 1, borderColor: r.color + '80', alignItems: 'center', justifyContent: 'center' }}>
+                      <Zap size={9} color={r.color} fill={r.color} strokeWidth={2.4} />
+                    </Pressable>
+                  )}
+                </View>
+                <Text numberOfLines={2} style={{ marginTop: 2, width: 132, textAlign: 'center', fontFamily: F.semibold, fontSize: 11.5, lineHeight: 15, color: C.ink2 }}>{r.title}</Text>
+                <Text style={{ marginTop: 2, fontFamily: F.bold, fontSize: 10.5, color: r.color }}>{complete ? '🏆 100%' : `${r.pct}%`}</Text>
+              </Pressable>
+            </View>
+          )
+        })}
+
+        {rows.length === 0 && (
+          <Text style={{ position: 'absolute', top: sy + 150, left: 32, right: 32, textAlign: 'center', fontFamily: F.body, fontSize: 13, lineHeight: 20, color: C.dim }}>
+            No goals yet — talk to Nova to chart your path.
+          </Text>
+        )}
+
+        {/* Sprints not tied to a goal — floating near home, tap → Sprints */}
+        {loose.slice(0, 3).map((s, i) => (
+          <View key={s.id} pointerEvents="box-none" style={{ position: 'absolute', top: H - 100 - i * 26, left: W / 2 - 80, width: 160, alignItems: 'center' }}>
+            <SprintPill sprint={s} color={C.amber} onPress={onOpenSprints} />
+          </View>
+        ))}
+        {loose.length > 3 && (
+          <View pointerEvents="box-none" style={{ position: 'absolute', top: H - 100 - 3 * 26, left: W / 2 - 80, width: 160, alignItems: 'center' }}>
+            <Pressable onPress={onOpenSprints} hitSlop={6} style={{ borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: C.amber + '18', borderWidth: 1, borderColor: C.amber + '45' }}>
+              <Text style={{ fontFamily: F.bold, fontSize: 9.5, color: C.amber }}>+{loose.length - 3} more sprint{loose.length - 3 === 1 ? '' : 's'}</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {rows.length > 0 && (
+          <Text style={{ position: 'absolute', top: H - 58, left: 0, width: W, textAlign: 'center', fontFamily: F.medium, fontSize: 10.5, color: C.faint2 }}>
+            Tap a planet to walk its path
+          </Text>
+        )}
+      </View>
+    </Animated.ScrollView>
+  )
+}
+
+// The slim switcher shown on a goal's path: the Dream star plus each goal as a
+// mini planet wearing its progress arc. Tap to hop paths, or the star to zoom
+// back out to the map.
+function ConstellationStrip({ goals, view, onSelect }) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center', columnGap: 16, rowGap: 8, paddingHorizontal: 12, marginTop: 8, marginBottom: 4 }}>
+      <Pressable onPress={() => onSelect('dream')} hitSlop={8} style={{ alignItems: 'center' }}>
+        <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: C.lineStrong }}>
+          <Text style={{ fontSize: 13, color: C.amber }}>✦</Text>
+        </View>
+        <Text style={{ marginTop: 3, fontFamily: F.medium, fontSize: 8.5, color: C.faint }}>Dream</Text>
+      </Pressable>
+      {goals.map((g, i) => {
+        const on = view === g.id
+        const color = CATEGORY_COLORS[g.category] || C.amber
+        const pct = clampN(Math.round(g.progress || 0), 0, 100)
+        return (
+          <Pressable key={g.id} onPress={() => onSelect(g.id)} hitSlop={6} style={{ alignItems: 'center', opacity: on ? 1 : 0.5 }}>
+            <View style={[{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }, on && { shadowColor: color, shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }]}>
+              <Planet size={18} color={color} idx={i} uid={`s-${g.id}`} />
+              <View pointerEvents="none" style={{ position: 'absolute' }}>
+                <ProgressRing pct={pct} color={color} size={28} />
+              </View>
+            </View>
+            <Text style={{ marginTop: 3, fontFamily: on ? F.bold : F.medium, fontSize: 8.5, color: on ? color : C.faint }}>{pct}%</Text>
+          </Pressable>
+        )
+      })}
     </View>
   )
 }
