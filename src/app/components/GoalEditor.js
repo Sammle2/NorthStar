@@ -64,10 +64,14 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
 
   const buildGoal = () => {
     const ms = milestones.map((m, i) => {
+      // "Where are you now" is authoritative in BOTH directions: every milestone
+      // up to and including the one you tapped is fully done, and everything
+      // after it is not — so the roadmap resets to exactly the spot you picked,
+      // whether that's further along or further back than before.
       const reached = i <= upTo
       const steps = (m.steps || [])
         .filter((s) => s.title.trim())
-        .map((s) => ({ ...s, title: s.title.trim(), completed: reached ? true : s.completed }))
+        .map((s) => ({ ...s, title: s.title.trim(), completed: reached }))
       return { ...m, title: m.title.trim() || m.title, steps }
     })
     return recomputeGoal({ ...goal, title: title.trim() || goal.title, milestones: ms })
