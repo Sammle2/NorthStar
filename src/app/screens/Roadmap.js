@@ -546,8 +546,8 @@ const planetCanvas = (size) => size + Math.ceil(size * 0.35) * 2
 
 // A goal as a small planet: a radial-gradient sphere in the goal's category
 // colour, lit from the upper-left like everything else in this sky. Each index
-// gets a signature feature — craters, a ring, or a moon — so the planets read
-// as distinct worlds. `uid` keeps gradient ids unique per mounted instance.
+// gets a signature look — craters, a ring, or a clean sphere — so the planets
+// read as distinct worlds. `uid` keeps gradient ids unique per mounted instance.
 function Planet({ size, color, idx, uid }) {
   const cv = planetCanvas(size)
   const c = cv / 2
@@ -574,7 +574,7 @@ function Planet({ size, color, idx, uid }) {
       {deco === 1 && (
         <Ellipse cx={c} cy={c} rx={r * 1.55} ry={r * 0.42} fill="none" stroke={shade(color, 45)} strokeOpacity={0.55} strokeWidth={Math.max(1.2, size * 0.05)} transform={`rotate(-16 ${c} ${c})`} />
       )}
-      {deco === 2 && <Circle cx={c + r * 1.28} cy={c - r * 0.95} r={Math.max(1.6, r * 0.16)} fill={shade(color, 100)} opacity={0.9} />}
+      {/* deco === 2 → a clean, featureless sphere (the third distinct look) */}
     </Svg>
   )
 }
