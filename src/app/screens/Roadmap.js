@@ -120,7 +120,10 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
     () => (goals.length ? clampN(Math.round(goals.reduce((s, g) => s + clampN(Math.round(g.progress || 0), 0, 100), 0) / goals.length), 0, 100) : 0),
     [profile],
   )
-  const accent = goal ? CATEGORY_COLORS[goal.category] || C.amber : C.amber
+  // Each goal's signature colour (category colour, hue-shifted when goals share
+  // one) — used for its planet, its road, and everything tinted to it.
+  const goalColors = useMemo(() => goalColorMap(goals), [goals])
+  const accent = goal ? goalColors[goal.id] || C.amber : C.amber
 
   // Flatten the goal into ordered path nodes: stepping stones then milestone, ×3.
   const nodes = useMemo(() => {
@@ -541,7 +544,50 @@ function shade(hex, amt) {
   return `#${((f((n >> 16) & 255) << 16) | (f((n >> 8) & 255) << 8) | f(n & 255)).toString(16).padStart(6, '0')}`
 }
 
-// A planet's SVG canvas is padded beyond its sphere so its ring / moon fit.
+// ── Colour helpers so same-category goals don't render as identical planets ──
+function hexToHsl(hex) {
+  let s = (hex || '#000000').replace('#', '')
+  if (s.length === 3) s = s.split('').map((c) => c + c).join('')
+  const r = parseInt(s.slice(0, 2), 16) / 255, g = parseInt(s.slice(2, 4), 16) / 255, b = parseInt(s.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  let h = 0
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h = (h * 60 + 360) % 360
+  }
+  const l = (max + min) / 2
+  return { h, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }
+}
+function hslToHex({ h, s, l }) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2
+  let r = 0, g = 0, b = 0
+  if (h < 60) { r = c; g = x } else if (h < 120) { r = x; g = c } else if (h < 180) { g = c; b = x }
+  else if (h < 240) { g = x; b = c } else if (h < 300) { r = x; b = c } else { r = c; b = x }
+  const to = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')
+  return `#${to(r)}${to(g)}${to(b)}`
+}
+
+// A stable goal-id → planet-colour map. The first goal of a category keeps its
+// true category colour; each later goal sharing that colour is rotated a step in
+// hue (±30°, fanning both ways) so the sky always shows distinct worlds — never
+// a row of identical planets when several goals share a category.
+function goalColorMap(goals) {
+  const seen = {}
+  const out = {}
+  ;(goals || []).forEach((g) => {
+    const base = CATEGORY_COLORS[g.category] || C.amber
+    const k = (seen[base] = (seen[base] === undefined ? -1 : seen[base]) + 1)
+    if (k === 0) { out[g.id] = base; return }
+    const hsl = hexToHsl(base)
+    const step = Math.ceil(k / 2) * (k % 2 ? 1 : -1) // +1, −1, +2, −2, …
+    out[g.id] = hslToHex({ h: (hsl.h + step * 30 + 360) % 360, s: hsl.s, l: hsl.l })
+  })
+  return out
+}
+
+// A planet's SVG canvas is padded beyond its sphere so its ring fits.
 const planetCanvas = (size) => size + Math.ceil(size * 0.35) * 2
 
 // A goal as a small planet: a radial-gradient sphere in the goal's category
@@ -589,6 +635,7 @@ function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelect
   const STAR_Y = 128
   const P_Y0 = 288
   const P_DY = 148
+  const colors = goalColorMap(goals)
   const rows = goals.map((g, i) => {
     // Zigzag down from the star with a touch of deterministic jitter, so the
     // planets scatter like a constellation instead of sitting on rails.
@@ -596,7 +643,7 @@ function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelect
     return {
       id: g.id,
       title: g.title,
-      color: CATEGORY_COLORS[g.category] || C.amber,
+      color: colors[g.id] || C.amber,
       pct: clampN(Math.round(g.progress || 0), 0, 100),
       x: Math.round(xf * W),
       y: P_Y0 + i * P_DY,
@@ -744,6 +791,7 @@ function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelect
 // mini planet wearing its progress arc. Tap to hop paths, or the star to zoom
 // back out to the map.
 function ConstellationStrip({ goals, view, onSelect }) {
+  const colors = goalColorMap(goals)
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center', columnGap: 16, rowGap: 8, paddingHorizontal: 12, marginTop: 8, marginBottom: 4 }}>
       <Pressable onPress={() => onSelect('dream')} hitSlop={8} style={{ alignItems: 'center' }}>
@@ -754,7 +802,7 @@ function ConstellationStrip({ goals, view, onSelect }) {
       </Pressable>
       {goals.map((g, i) => {
         const on = view === g.id
-        const color = CATEGORY_COLORS[g.category] || C.amber
+        const color = colors[g.id] || C.amber
         const pct = clampN(Math.round(g.progress || 0), 0, 100)
         return (
           <Pressable key={g.id} onPress={() => onSelect(g.id)} hitSlop={6} style={{ alignItems: 'center', opacity: on ? 1 : 0.5 }}>
