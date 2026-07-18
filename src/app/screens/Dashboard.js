@@ -7,6 +7,7 @@ import StreakBadge from '../components/StreakBadge'
 import { SparkStar } from '../components/StarMark'
 import { COACH_MESSAGES, NN_TIME_OPTIONS, generateNonNegotiables, planKindLabel, planProgress } from '../aiEngine'
 import { currentStreak, getGreeting, todayKey, yesterdayKey } from '../store'
+import TodayTasks from '../../momentum/TodayTasks'
 
 const KIND_ICON = { workout: Dumbbell, diet: Utensils, study: BookOpen, habit: Repeat, custom: ClipboardList }
 
@@ -173,6 +174,11 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
           </View>
         ))}
       </View>
+
+      {/* Momentum roadmap: today's tasks across all Dreams' current stones. Renders
+          nothing until the user has set up at least one Dream's stones, so it's
+          invisible for anyone who hasn't opted into the momentum mechanism. */}
+      <TodayTasks profile={profile} onUpdate={onUpdate} />
 
       {/* My Plans — an always-visible, inviting entry into the Plans library. The
           amber arrow signals "tap me"; the copy encourages a first plan when empty

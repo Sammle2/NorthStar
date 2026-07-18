@@ -4,6 +4,7 @@ import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGrad, Path, RadialGrad
 import { ChevronRight, RotateCcw, Zap } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORY_COLORS } from '../mockData'
+import MomentumCard from '../../momentum/MomentumCard'
 import { recomputeGoal, shortStepLabel } from '../aiEngine'
 import StarField from '../components/StarField'
 import { GoldStar } from '../components/StarMark'
@@ -262,6 +263,11 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
           </Pressable>
         )}
       </View>
+
+      {/* Momentum roadmap: for the viewed goal, a compact card showing its current
+          stone + lever-weighted momentum, opening the full StoneDetail sheet. Sits
+          between header and map so Max's celestial-map layout is untouched. */}
+      {goal && <MomentumCard goal={goal} onUpdate={onUpdate} accent={accent} />}
 
       {/* On a goal's path, a slim constellation strip hops between paths and back
           to the Dream. The Dream overview needs no switcher — the map below IS

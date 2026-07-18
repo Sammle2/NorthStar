@@ -7,9 +7,14 @@ import { getSupabaseClient } from './supabaseAuth'
 
 const one = (data) => (Array.isArray(data) ? data[0] : data)
 
-export async function createCircle(name) {
+export async function createCircle(name, { comparisonMode, trackableType } = {}) {
   try {
-    const { data, error } = await getSupabaseClient().rpc('create_circle', { p_name: name })
+    // comparison_mode/trackable_type are defaulted server-side, so passing just a
+    // name still yields a cooperative/habit circle (backward compatible).
+    const params = { p_name: name }
+    if (comparisonMode) params.p_comparison_mode = comparisonMode
+    if (trackableType) params.p_trackable_type = trackableType
+    const { data, error } = await getSupabaseClient().rpc('create_circle', params)
     if (error) throw error
     return { circle: one(data), error: null }
   } catch (e) {
@@ -95,4 +100,59 @@ export async function getCircleMembers(circleId) {
   }
 }
 
-export default { createCircle, joinByCode, inviteToCircle, respondInvite, leaveCircle, getMyCircles, getMyInvites, getCircleMembers }
+// ── momentum roadmap: per-dream sharing (see 20260718000000_momentum_circles) ──
+// A circle references members' existing Dreams via a visibility level; it keeps
+// NO separate trackable. Default share level is dream_and_momentum.
+export async function shareDreamToCircle(circleId, dreamId, shareLevel = 'dream_and_momentum') {
+  try {
+    const { error } = await getSupabaseClient().rpc('share_dream_to_circle', { p_circle: circleId, p_dream_id: dreamId, p_share_level: shareLevel })
+    if (error) throw error
+    return { error: null }
+  } catch (e) {
+    console.warn('[Circles] shareDream failed:', e?.message)
+    return { error: e?.message || 'Could not share' }
+  }
+}
+
+export async function unshareDreamFromCircle(circleId, dreamId) {
+  try {
+    const { error } = await getSupabaseClient().rpc('unshare_dream_from_circle', { p_circle: circleId, p_dream_id: dreamId })
+    if (error) throw error
+    return { error: null }
+  } catch (e) {
+    console.warn('[Circles] unshareDream failed:', e?.message)
+    return { error: e?.message || 'Could not update' }
+  }
+}
+
+// The caller's own shares in a circle → { [dreamId]: shareLevel }.
+export async function getMyCircleShares(circleId) {
+  try {
+    const { data, error } = await getSupabaseClient().rpc('my_circle_shares', { p_circle: circleId })
+    if (error) throw error
+    const map = {}
+    ;(data || []).forEach((r) => { map[r.dream_id] = r.share_level })
+    return map
+  } catch (e) {
+    console.warn('[Circles] getMyCircleShares failed:', e?.message)
+    return {}
+  }
+}
+
+// The circle's shared-dream board (momentum honouring each share's level).
+export async function getCircleDreams(circleId) {
+  try {
+    const { data, error } = await getSupabaseClient().rpc('get_circle_dreams', { p_circle: circleId })
+    if (error) throw error
+    return data || []
+  } catch (e) {
+    console.warn('[Circles] getCircleDreams failed:', e?.message)
+    return []
+  }
+}
+
+export default {
+  createCircle, joinByCode, inviteToCircle, respondInvite, leaveCircle,
+  getMyCircles, getMyInvites, getCircleMembers,
+  shareDreamToCircle, unshareDreamFromCircle, getMyCircleShares, getCircleDreams,
+}
