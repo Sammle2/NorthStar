@@ -11,6 +11,7 @@ import {
   getMyCircles, getMyInvites, getCircleMembers,
 } from '../../services/circleService'
 import { getFriendships, getIdentities, getProfile } from '../../services/socialService'
+import CircleDreams from '../../momentum/CircleDreams'
 
 // Live streak / hit-today from the raw values the RPC returns — one shared
 // definition (store.liveStreakOf) so circles, the feed, and profile cards agree.
@@ -254,6 +255,11 @@ export function CircleDetail({ profile, circle, onClose, onMessageUser }) {
               )
             })
           )}
+
+          {/* Momentum roadmap: shared-dream board + per-dream share controls for
+              this circle. Reads getCircleDreams/my_circle_shares — degrades to an
+              empty state until the 20260718 migration is applied. */}
+          <CircleDreams circle={circle} profile={profile} />
 
           {/* Leave circle */}
           <Pressable onPress={leave} disabled={left} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, marginTop: 18, borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)' }}>
