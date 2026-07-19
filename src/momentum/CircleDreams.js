@@ -12,7 +12,7 @@ import { Eye, TrendingUp } from 'lucide-react-native'
 import { C, F } from '../app/tokens'
 import Avatar from '../app/components/Avatar'
 import GlowProgress from '../app/components/GlowProgress'
-import { CATEGORY_COLORS } from '../app/mockData'
+import { CATEGORY_COLORS, normalizeCategory } from '../app/mockData'
 import { activeDreams } from './store'
 import { getCircleDreams, getMyCircleShares, shareDreamToCircle, unshareDreamFromCircle } from '../services/circleService'
 
@@ -58,7 +58,7 @@ export default function CircleDreams({ circle, profile }) {
         </Text>
       ) : (
         board.map((d) => {
-          const color = CATEGORY_COLORS[d.category] || C.violet
+          const color = CATEGORY_COLORS[normalizeCategory(d.category)] || C.violet
           const isMe = d.user_id === profile.userId
           const showMomentum = d.share_level === 'dream_and_momentum' || d.share_level === 'full_tasks'
           return (

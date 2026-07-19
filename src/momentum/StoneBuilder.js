@@ -10,6 +10,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { ArrowDown, ArrowUp, Check, ChevronLeft, Plus, Sparkles, Trash2, X } from 'lucide-react-native'
 import { C, F } from '../app/tokens'
 import { GAP_SIZES } from './model'
+import { CATEGORIES, normalizeCategory } from '../app/mockData'
 import { decomposeIntoStones, generateStoneTasks, suggestLevers, normalizeWeights } from './generate'
 import { adoptMechanism } from './store'
 
@@ -18,6 +19,14 @@ const CADENCE_PRESETS = [
   { id: 'weekdays', label: 'Weekdays', value: ['mon', 'tue', 'wed', 'thu', 'fri'] },
   { id: 'mwf', label: 'Mon·Wed·Fri', value: ['mon', 'wed', 'fri'] },
   { id: 'weekend', label: 'Weekends', value: ['sat', 'sun'] },
+]
+
+// Experience feeds NOVA's stone + task sizing: a beginner gets more, smaller
+// stones and gentler tasks; an expert gets fewer, harder ones.
+const EXPERIENCE_LEVELS = [
+  { id: 'new', label: 'New to this' },
+  { id: 'some', label: 'Some experience' },
+  { id: 'experienced', label: 'Experienced' },
 ]
 
 export default function StoneBuilder({ goal, onUpdate, onClose, situation = '' }) {
@@ -29,8 +38,11 @@ export default function StoneBuilder({ goal, onUpdate, onClose, situation = '' }
   const [tasks, setTasks] = useState([]) // first-stone tasks
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(null)
+  const [experience, setExperience] = useState('')
+  const [startPoint, setStartPoint] = useState('') // where they are now (current state)
 
   const category = goal?.category || ''
+  const catBlurb = (CATEGORIES.find((c) => c.key === normalizeCategory(goal?.category)) || {}).blurb || ''
 
   // gap chosen → ask Claude for stones + a possible lever split in parallel.
   const chooseGap = async (g) => {
@@ -38,7 +50,7 @@ export default function StoneBuilder({ goal, onUpdate, onClose, situation = '' }
     setBusy(true)
     setNote('Mapping your stones…')
     const [proposed, suggestedLevers] = await Promise.all([
-      decomposeIntoStones({ title: goal.title, category, gap: g, situation }),
+      decomposeIntoStones({ title: goal.title, category, categoryBlurb: catBlurb, gap: g, situation, currentState: startPoint, experience }),
       suggestLevers({ title: goal.title, category }),
     ])
     setStones(proposed.length ? proposed : [blankStone()])
@@ -70,7 +82,7 @@ export default function StoneBuilder({ goal, onUpdate, onClose, situation = '' }
     setBusy(true)
     setNote('Drafting your first tasks…')
     const activeLevers = useLevers ? normalizeWeights(levers.filter((l) => (l.title || '').trim())) : []
-    const drafted = await generateStoneTasks({ dreamTitle: goal.title, category, stone: clean[0], levers: activeLevers })
+    const drafted = await generateStoneTasks({ dreamTitle: goal.title, category, categoryBlurb: catBlurb, stone: clean[0], levers: activeLevers, experience })
     setTasks(drafted.length ? drafted : [{ title: '', type: 'habit', cadenceDays: 'daily', lever: null }])
     setBusy(false)
     setNote(null)
@@ -85,7 +97,7 @@ export default function StoneBuilder({ goal, onUpdate, onClose, situation = '' }
     const activeLevers = useLevers ? normalizeWeights(levers.filter((l) => (l.title || '').trim())) : []
     const cleanTasks = tasks.filter((t) => (t.title || '').trim())
     const built = stones.map((s, i) => ({ ...s, tasks: i === 0 ? cleanTasks : [] }))
-    adoptMechanism(onUpdate, goal.id, { gap, levers: activeLevers, stones: built })
+    adoptMechanism(onUpdate, goal.id, { gap, levers: activeLevers, stones: built, experience, currentState: startPoint })
     onClose && onClose(true)
   }
 
@@ -100,6 +112,25 @@ export default function StoneBuilder({ goal, onUpdate, onClose, situation = '' }
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, paddingBottom: 140 }}>
         {step === 'gap' && (
           <View>
+            <Text style={{ fontFamily: F.medium, fontSize: 11, color: C.faint, letterSpacing: 1, marginBottom: 8 }}>YOUR EXPERIENCE</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+              {EXPERIENCE_LEVELS.map((e) => {
+                const on = experience === e.label
+                return (
+                  <Pressable key={e.id} onPress={() => setExperience(on ? '' : e.label)} style={{ flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center', backgroundColor: on ? C.violet : C.violetFill07, borderWidth: 1, borderColor: on ? C.violet : C.lineMid }}>
+                    <Text style={{ fontFamily: on ? F.bold : F.medium, fontSize: 11, color: on ? C.amberInk : C.dim, textAlign: 'center' }}>{e.label}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+            <Text style={{ fontFamily: F.medium, fontSize: 11, color: C.faint, letterSpacing: 1, marginBottom: 8 }}>WHERE YOU'RE STARTING (optional)</Text>
+            <TextInput
+              value={startPoint}
+              onChangeText={setStartPoint}
+              placeholder="e.g. 200 lbs now, can run 1 mile, 0 clients"
+              placeholderTextColor={C.faint}
+              style={{ backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: C.lineMid, paddingHorizontal: 11, paddingVertical: 10, color: C.ink, fontFamily: F.medium, fontSize: 13.5, marginBottom: 22 }}
+            />
             <Kicker>How big is this leap?</Kicker>
             <Text style={{ fontFamily: F.body, fontSize: 13, color: C.dim, marginTop: 6, marginBottom: 18, lineHeight: 19 }}>
               This only sets how many stones we lay between you and the summit — no dates, ever.

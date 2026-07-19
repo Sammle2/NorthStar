@@ -8,6 +8,7 @@ import { SparkStar } from '../components/StarMark'
 import { COACH_MESSAGES, NN_TIME_OPTIONS, generateNonNegotiables, planKindLabel, planProgress } from '../aiEngine'
 import { currentStreak, getGreeting, todayKey, yesterdayKey } from '../store'
 import TodayTasks from '../../momentum/TodayTasks'
+import { collectTodayTasks } from '../../momentum/store'
 
 const KIND_ICON = { workout: Dumbbell, diet: Utensils, study: BookOpen, habit: Repeat, custom: ClipboardList }
 
@@ -20,13 +21,21 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
   const todayNN = profile.nonNeg?.[today]
   const [editingTime, setEditingTime] = useState(null)
 
-  // Auto-populate today's three non-negotiables on first open of the day.
+  // Momentum tasks take over the Today list when the user has any due today; the
+  // generic non-negotiables become a fallback only for users with none set up.
+  const momentumRows = collectTodayTasks(profile)
+  const hasMomentum = momentumRows.length > 0
+  const momDone = momentumRows.filter((r) => r.done).length
+  const momAllDone = hasMomentum && momDone === momentumRows.length
+
+  // Auto-populate today's three non-negotiables on first open of the day — only
+  // when there are no momentum tasks, so we never generate a list we then hide.
   useEffect(() => {
-    if (!todayNN) {
+    if (!todayNN && !hasMomentum) {
       const list = generateNonNegotiables(profile)
       onUpdate({ ...profile, nonNeg: { ...(profile.nonNeg || {}), [today]: list } })
     }
-  }, [todayNN])
+  }, [todayNN, hasMomentum])
 
   // A missed day breaks the chain: if the last banked day is neither today nor
   // yesterday, persist the reset so every reader of profile.streak (posts, Nova,
@@ -36,6 +45,19 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
       onUpdate({ ...profile, streak: 0, lastCheckIn: null })
     }
   }, [today, profile.lastCheckIn])
+
+  // With momentum tasks active, the daily streak banks off THEM (all of today's
+  // tasks done), mirroring the non-negotiable logic. No-ops without momentum
+  // tasks, so the fallback non-negotiable streak path is untouched.
+  useEffect(() => {
+    if (!hasMomentum) return
+    if (momAllDone && profile.lastCheckIn !== today) {
+      onUpdate({ ...profile, streak: currentStreak(profile) + 1, lastCheckIn: today })
+    } else if (!momAllDone && profile.lastCheckIn === today) {
+      const stepped = Math.max(0, (profile.streak || 0) - 1)
+      onUpdate({ ...profile, streak: stepped, lastCheckIn: stepped > 0 ? yesterdayKey() : null })
+    }
+  }, [hasMomentum, momAllDone, today, profile.lastCheckIn])
 
   const list = todayNN || []
   const doneCount = list.filter((n) => n.completed).length
@@ -87,19 +109,20 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
           </View>
         </View>
 
-        {/* Today's progress */}
+        {/* Today's progress — momentum tasks when the user has any set up, else
+            the three non-negotiables (fallback). */}
         <View style={{ marginTop: 24, borderRadius: 16, padding: 20, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.line }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim, letterSpacing: 1, textTransform: 'uppercase' }}>
-              Today's Non-Negotiables
+              {hasMomentum ? "Today's Tasks" : "Today's Non-Negotiables"}
             </Text>
-            <Text style={{ fontFamily: F.semibold, fontSize: 13.5, color: C.violet }}>{doneCount}/3</Text>
+            <Text style={{ fontFamily: F.semibold, fontSize: 13.5, color: C.violet }}>{hasMomentum ? `${momDone}/${momentumRows.length}` : `${doneCount}/3`}</Text>
           </View>
-          <GlowProgress value={(doneCount / 3) * 100} color={C.violet} height={8} />
-          {doneCount === 3 ? (
-            <Text style={{ fontFamily: F.body, fontSize: 13, color: C.green, marginTop: 12 }}>All three done — your streak is secured.</Text>
+          <GlowProgress value={hasMomentum ? (momentumRows.length ? (momDone / momentumRows.length) * 100 : 0) : (doneCount / 3) * 100} color={C.violet} height={8} />
+          {(hasMomentum ? momAllDone : doneCount === 3) ? (
+            <Text style={{ fontFamily: F.body, fontSize: 13, color: C.green, marginTop: 12 }}>All done — your streak is secured.</Text>
           ) : (
-            <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.faint, marginTop: 12 }}>Hit all three to lock in today's streak.</Text>
+            <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.faint, marginTop: 12 }}>{hasMomentum ? "Finish today's tasks to lock in your streak." : "Hit all three to lock in today's streak."}</Text>
           )}
         </View>
       </View>
@@ -112,7 +135,8 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
         </View>
       </View>
 
-      {/* The three non-negotiables — each anchored to a time of day */}
+      {/* The three non-negotiables — fallback only when no momentum tasks exist */}
+      {!hasMomentum && (
       <View style={{ paddingHorizontal: 24, gap: 12 }}>
         <Text style={{ fontFamily: F.display, fontSize: 12, color: C.faint, letterSpacing: 2.2 }}>DO THESE TODAY</Text>
         {list.map((nn) => (
@@ -174,11 +198,12 @@ export default function Dashboard({ profile, onUpdate, onOpenSettings, onOpenCoa
           </View>
         ))}
       </View>
+      )}
 
-      {/* Momentum roadmap: today's tasks across all Dreams' current stones. Renders
-          nothing until the user has set up at least one Dream's stones, so it's
-          invisible for anyone who hasn't opted into the momentum mechanism. */}
-      <TodayTasks profile={profile} onUpdate={onUpdate} />
+      {/* Momentum roadmap: today's tasks become the PRIMARY Today list when set up
+          (the progress card above is their summary, so no duplicate header here).
+          Renders nothing until the user has adopted the momentum mechanism. */}
+      <TodayTasks profile={profile} onUpdate={onUpdate} showHeader={false} />
 
       {/* My Plans — an always-visible, inviting entry into the Plans library. The
           amber arrow signals "tap me"; the copy encourages a first plan when empty

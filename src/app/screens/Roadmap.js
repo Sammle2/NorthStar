@@ -5,6 +5,7 @@ import { ChevronRight, Plus, RotateCcw, Sparkles, Zap } from 'lucide-react-nativ
 import { C, F } from '../tokens'
 import { CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS, normalizeCategory } from '../mockData'
 import MomentumCard from '../../momentum/MomentumCard'
+import GoalMomentumBar from '../../momentum/GoalMomentumBar'
 import { buildGoal, canAddGoal, recomputeGoal, shortStepLabel } from '../aiEngine'
 import { generateGoalsForFocus } from '../../services/aiService'
 import StarField from '../components/StarField'
@@ -919,6 +920,8 @@ function CategoryView({ categoryKey, goals, creating, W, scrollY, onSelectGoal, 
                   </View>
                   <Text numberOfLines={2} style={{ marginTop: 4, width: 140, textAlign: 'center', fontFamily: F.semibold, fontSize: 11.5, lineHeight: 15, color: C.ink2 }}>{g.title}</Text>
                   <Text style={{ marginTop: 1, fontFamily: F.bold, fontSize: 10, color: cat.color }}>{complete ? '🏆 100%' : `${pct}%`}</Text>
+                  {/* Momentum roadmap: per-goal momentum score (renders only for goals that have adopted the mechanism). */}
+                  <GoalMomentumBar goal={g} width={140} />
                 </Pressable>
               )
             })}

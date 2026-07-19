@@ -17,6 +17,7 @@ import {
 import { stoneMomentum, leverMomenta, outcomeProgress, paceEta, pct, shouldNudgeAdjust } from './engine'
 import { toggleTaskDone, logOutcome, markStoneComplete, addTask } from './store'
 import { generateStoneTasks } from './generate'
+import { CATEGORIES, normalizeCategory } from '../app/mockData'
 import StoneBuilder from './StoneBuilder'
 
 export default function StoneTrack({ goal, onUpdate, situation = '' }) {
@@ -106,7 +107,8 @@ function CurrentStoneBody({ stone, r2, goal, onUpdate }) {
 
   const generate = async () => {
     setGenBusy(true)
-    const drafted = await generateStoneTasks({ dreamTitle: goal.title, category: goal.category, stone, levers: r2.levers })
+    const catBlurb = (CATEGORIES.find((c) => c.key === normalizeCategory(goal.category)) || {}).blurb || ''
+    const drafted = await generateStoneTasks({ dreamTitle: goal.title, category: goal.category, categoryBlurb: catBlurb, stone, levers: r2.levers, experience: r2.experience || '' })
     for (const t of drafted) addTask(onUpdate, goal.id, stone.id, { title: t.title, type: t.type, cadenceDays: t.cadenceDays, leverId: leverIdByTitle(r2, t.lever) })
     setGenBusy(false)
   }

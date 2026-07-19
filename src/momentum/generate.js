@@ -47,12 +47,18 @@ const SAFETY_RAIL = `HARD RULES — never break these:
 // Ordered, MEASURABLE checkpoints (never dates), scaled to the gap size. Each
 // stone carries a real target value + direction so the outcome engine can track
 // it. Returns [] on failure — the setup flow falls back to a manual single stone.
-export async function decomposeIntoStones({ title, category = '', gap = 'stretch', situation = '' } = {}) {
+export async function decomposeIntoStones({ title, category = '', categoryBlurb = '', gap = 'stretch', situation = '', currentState = '', experience = '', intensity = '' } = {}) {
   const [min, max] = gapStoneRange(gap)
+  const start = currentState || situation
   const prompt = `A person is pursuing this goal (their "Dream"): "${title}"
-Category: ${category || 'general'}
-${situation ? `Where they are now: ${situation}\n` : ''}
-Break this into an ORDERED sequence of ${min}–${max} "stones" — measurable checkpoints on the way there, NOT calendar dates and NOT time-based. Each stone is a concrete, verifiable target that unlocks the next.
+Category: ${category || 'general'}${categoryBlurb ? ` (${categoryBlurb})` : ''}
+${start ? `Where they are now (starting point): ${start}\n` : ''}${experience ? `Their experience level: ${experience}\n` : ''}${intensity ? `Required intensity of this goal: ${intensity}\n` : ''}
+Break this into an ORDERED sequence of "stones" — measurable checkpoints on the way there, NOT calendar dates and NOT time-based. Each stone is a concrete, verifiable target that unlocks the next.
+
+Choose the RIGHT NUMBER of stones (about ${min}–${max} as a baseline) with judgment:
+- MORE stones for a beginner, a bigger gap, or a high-intensity goal (a marathon needs more stones than a 1-mile run).
+- FEWER stones for someone experienced, or a small gap.
+Size each stone's increment to their CURRENT state → goal: a beginner gets smaller, closer steps; the first stone should sit just beyond where they are now, the last IS the goal.
 
 For each stone give:
 - title: short, motivating name for the checkpoint
@@ -64,7 +70,7 @@ For each stone give:
 Rules:
 - Stones must be strictly ordered and cumulative — each further along than the last.
 - Prefer the SAME metric across stones when the goal is about one number moving (e.g. weight going down each stone).
-- Keep them realistic and evenly spaced.
+- Keep them realistic and matched to their level.
 
 Return ONLY a JSON array, no prose:
 [{"title":"","targetMetric":"","targetValue":0,"targetUnit":"","direction":"up"}]`
@@ -94,17 +100,17 @@ Return ONLY a JSON array, no prose:
 // next stone — scoped to the Dream's category and THIS stone's target. If the
 // Dream has levers, tasks are tagged back to a lever by title. Returns [] on
 // failure so the caller can let the user add tasks by hand.
-export async function generateStoneTasks({ dreamTitle, category = '', stone, levers = [] } = {}) {
+export async function generateStoneTasks({ dreamTitle, category = '', categoryBlurb = '', stone, levers = [], experience = '', intensity = '', constraints = '' } = {}) {
   const leverList = (levers || []).map((l) => l.title).filter(Boolean)
   const targetLine = stone?.targetValue != null
     ? `${stone.targetMetric || 'target'} ${stone.direction === 'down' ? 'down to' : 'up to'} ${stone.targetValue}${stone.targetUnit ? ' ' + stone.targetUnit : ''}`
     : (stone?.targetMetric || stone?.title || '')
 
   const prompt = `Goal ("Dream"): "${dreamTitle}"
-Category: ${category || 'general'}
+Category: ${category || 'general'}${categoryBlurb ? ` (${categoryBlurb})` : ''}
 Current stone (checkpoint) to reach: "${stone?.title || ''}" — target: ${targetLine}
-${leverList.length ? `This goal is split into these levers (areas): ${leverList.join(', ')}. Tag each task to the ONE lever it belongs to (use the exact lever name), or null if it fits none.\n` : ''}
-Design the concrete daily habits and scheduled items that will move the user from where they are to THIS stone. 3–6 tasks.
+${experience ? `Their experience level: ${experience}\n` : ''}${intensity ? `Required intensity: ${intensity}\n` : ''}${constraints ? `Constraints to respect: ${constraints}\n` : ''}${leverList.length ? `This goal is split into these levers (areas): ${leverList.join(', ')}. Tag each task to the ONE lever it belongs to (use the exact lever name), or null if it fits none.\n` : ''}
+Design the concrete daily habits and scheduled items that move the user toward THIS stone. 3–6 tasks, matched to their experience level and the goal's required intensity — gentler and simpler for a beginner, harder/more frequent for an advanced or high-intensity goal — and fitting any constraints.
 
 For each task:
 - title: short imperative (e.g. "Strength train", "Cook dinner at home")

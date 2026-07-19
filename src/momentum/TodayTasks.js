@@ -11,12 +11,12 @@ import React, { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { CheckCircle2, Circle } from 'lucide-react-native'
 import { C, F } from '../app/tokens'
-import { CATEGORY_COLORS } from '../app/mockData'
+import { CATEGORY_COLORS, normalizeCategory } from '../app/mockData'
 import { collectTodayTasks } from './store'
 import { toggleTaskDone } from './store'
 import StoneDetail from './StoneDetail'
 
-export default function TodayTasks({ profile, onUpdate }) {
+export default function TodayTasks({ profile, onUpdate, showHeader = true }) {
   const [openGoalId, setOpenGoalId] = useState(null)
   const rows = collectTodayTasks(profile)
 
@@ -26,15 +26,17 @@ export default function TodayTasks({ profile, onUpdate }) {
   const openGoal = openGoalId ? (profile.goals || []).find((g) => g.id === openGoalId) : null
 
   return (
-    <View style={{ paddingHorizontal: 24, marginTop: 26 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <Text style={{ fontFamily: F.display, fontSize: 12, color: C.faint, letterSpacing: 2.2 }}>TODAY'S MOMENTUM</Text>
-        <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: done === rows.length ? C.green : C.violet }}>{done}/{rows.length}</Text>
-      </View>
+    <View style={{ paddingHorizontal: 24, marginTop: showHeader ? 26 : 6 }}>
+      {showHeader && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <Text style={{ fontFamily: F.display, fontSize: 12, color: C.faint, letterSpacing: 2.2 }}>TODAY'S MOMENTUM</Text>
+          <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: done === rows.length ? C.green : C.violet }}>{done}/{rows.length}</Text>
+        </View>
+      )}
 
       <View style={{ gap: 10 }}>
         {rows.map((r) => {
-          const color = CATEGORY_COLORS[r.category] || C.violet
+          const color = CATEGORY_COLORS[normalizeCategory(r.category)] || C.violet
           const tagLabel = r.lever ? `${shorten(r.goalTitle)} · ${r.lever.title}` : shorten(r.goalTitle)
           return (
             <View

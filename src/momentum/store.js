@@ -77,8 +77,11 @@ function mutateR2(onUpdate, goalId, fn) {
 // Accepts fully-edited data from the setup flow: { gap, levers:[{title,weight}],
 // stones:[{title,targetMetric,targetValue,targetUnit,direction,tasks:[{title,type,cadenceDays,lever}]}] }.
 // First stone becomes current (and gets startedAt today); the rest start locked.
-export function buildR2({ gap = 'stretch', levers = [], stones = [] } = {}) {
+export function buildR2({ gap = 'stretch', levers = [], stones = [], experience = '', currentState = '' } = {}) {
   const r2 = makeR2(gap)
+  // Kept so later stones' task generation stays sized to the same person.
+  if (experience) r2.experience = experience
+  if (currentState) r2.currentState = currentState
   const built = normalizeWeights(levers.filter((l) => l && l.title).map((l) => makeLever(l.title, l.weight)))
   r2.levers = built
   const leverIdByTitle = {}
