@@ -199,6 +199,13 @@ export const extendedProfileSchema = {
   // New fields for Dream-to-Action system
   goals: [],
   dailyActions: [],
+  // The 5-category framework (Mind/Body/Spirit/Work/Relationships) intake:
+  // per-category { now, goal } 0–10 ratings and { <category>: count } focus.
+  // frameworkVersion gates the fresh-start onboarding — set to 2 once a user
+  // finishes the 5-category intake; anything else routes them through it.
+  categoryRatings: {},
+  categoryFocus: {},
+  frameworkVersion: null,
   // Nova's long-term memory: { facts: [{text}], distilledAtCount, updatedAt } —
   // distilled from chats (aiService.distillCoachMemory), synced per user.
   coachMemory: null,

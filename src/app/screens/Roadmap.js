@@ -1,12 +1,23 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGrad, Path, RadialGradient, Stop } from 'react-native-svg'
-import { ChevronRight, RotateCcw, Zap } from 'lucide-react-native'
+import { ChevronRight, Plus, RotateCcw, Sparkles, Zap } from 'lucide-react-native'
 import { C, F } from '../tokens'
-import { CATEGORY_COLORS } from '../mockData'
-import { recomputeGoal, shortStepLabel } from '../aiEngine'
+import { CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS, normalizeCategory } from '../mockData'
+import { buildGoal, canAddGoal, recomputeGoal, shortStepLabel } from '../aiEngine'
+import { generateGoalsForFocus } from '../../services/aiService'
 import StarField from '../components/StarField'
 import { GoldStar } from '../components/StarMark'
+
+// A local starter goal per category — used only when NOVA's proposal is
+// unavailable (offline) for an in-app "create a goal in this category" tap.
+const STARTER_TITLES = {
+  mind: 'Read 12 Books This Year',
+  body: 'Work Out 3 Times a Week',
+  spirit: 'Meditate 10 Minutes Daily for 90 Days',
+  work: 'Grow My Income by 20% This Year',
+  relationships: 'Have One Real Catch-Up Every Week',
+}
 
 // The lit road + the celestial map's goal-lines animate their length, so an SVG
 // Path that takes an Animated strokeDashoffset.
@@ -106,14 +117,58 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
   }, [])
 
   const goal = goals.find((g) => g.id === view)
+  // A category view ('cat:<key>') shows one category's goals (or its empty
+  // prompt) — no single goal is selected.
+  const catView = typeof view === 'string' && view.startsWith('cat:') ? view.slice(4) : null
+  const goalsInCategory = (key) => goals.filter((g) => normalizeCategory(g.category) === key)
+  const [creating, setCreating] = useState(null) // category key while NOVA drafts a new goal
+  // A just-created goal we've navigated to: skip the disappear-bounce for it
+  // until its onUpdate lands in `goals` (guards the create→setView state race).
+  const pendingGoalRef = useRef(null)
   // If the viewed goal disappears (e.g. NOVA removed it via chat), fall back to
-  // the Dream view instead of leaving the switcher pointing at a dead id.
+  // the Dream view instead of leaving the switcher pointing at a dead id. A
+  // category view is valid without a goal, so it's exempt.
   useEffect(() => {
-    if (view !== 'dream' && !goal) {
+    if (goal && pendingGoalRef.current) pendingGoalRef.current = null
+    if (view !== 'dream' && !catView && !goal && view !== pendingGoalRef.current) {
       setView('dream')
       setSelected(null)
     }
-  }, [view, goal])
+  }, [view, goal, catView])
+
+  // Tapping a category resolves by how many goals it holds: exactly one opens
+  // that goal's road; zero or many open the category view (empty prompt, or the
+  // goal list with "add another").
+  const openCategory = (key) => {
+    setSelected(null); setExpandedStep(null)
+    const g = goalsInCategory(key)
+    setView(g.length === 1 ? g[0].id : `cat:${key}`)
+  }
+
+  // Create a goal in a category from the intake — capped at 5 total / 3 per
+  // category. NOVA drafts a fitting title (local starter if offline); the goal
+  // is a scaffold the background upgrader later specializes into a full roadmap.
+  const createGoalInCategory = async (key) => {
+    if (creating) return
+    const check = canAddGoal(goals, key)
+    if (!check.ok) {
+      setSelected({ horizon: CATEGORY_LABELS[key], title: 'Not just yet', detail: check.reason, lit: false, accent: CATEGORY_COLORS[key] })
+      return
+    }
+    setCreating(key)
+    let title = ''
+    try {
+      const ai = await generateGoalsForFocus({ focus: { [key]: 1 }, ratings: profile.categoryRatings || {}, pursuing: profile.currentPursuits || '', name: profile.name, tone: profile.coachTone })
+      const hit = (ai || []).find((x) => normalizeCategory(x.category) === key) || (ai || [])[0]
+      title = hit && String(hit.title || '').trim()
+    } catch (e) { /* fall back to a local starter */ }
+    if (!title) title = STARTER_TITLES[key] || `New ${CATEGORY_LABELS[key]} Goal`
+    const newGoal = buildGoal(title, '', `goal-${Date.now().toString(36)}`, key)
+    pendingGoalRef.current = newGoal.id // survive the create→setView render race
+    onUpdate({ ...profile, goals: [...goals, newGoal] })
+    setCreating(null)
+    setView(newGoal.id) // straight into the new goal's road
+  }
   const dreamPct = useMemo(
     // Sanitize each goal's progress (legacy/AI-written values can be missing or
     // out of range) — this average renders permanently under the North Star.
@@ -220,16 +275,16 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
   // the dream view's parallax spans the REAL scrollable height — the phantom
   // 2-node road geo would freeze the stars early on tall maps (many goals).
   const looseSprintCount = liveSprints.filter((s) => !s.linkedGoalId).length
-  const mapH = Math.max(600, (goals.length ? 288 + (goals.length - 1) * 148 : 128) + 160 + (looseSprintCount ? 30 + Math.min(looseSprintCount, 4) * 26 : 0))
+  const mapH = Math.max(600, 288 + (CATEGORIES.length - 1) * 148 + 160 + (looseSprintCount ? 30 + Math.min(looseSprintCount, 4) * 26 : 0))
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }} onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}>
       {/* Header */}
       <View style={{ paddingHorizontal: 24, paddingTop: 56, paddingBottom: 6 }}>
-        <Text style={{ fontFamily: F.display, fontSize: 11.5, color: C.faint, letterSpacing: 3 }}>YOUR PATH TO</Text>
+        <Text style={{ fontFamily: F.display, fontSize: 11.5, color: C.faint, letterSpacing: 3 }}>{catView ? 'YOUR GOALS IN' : 'YOUR PATH TO'}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <Text numberOfLines={2} style={{ flex: 1, fontFamily: F.display, fontSize: 20, color: C.ink, letterSpacing: 0.8, lineHeight: 26 }}>
-            {goal ? goal.title.toUpperCase() : 'THE DREAM'}
+            {goal ? goal.title.toUpperCase() : catView ? CATEGORY_LABELS[catView].toUpperCase() : 'THE DREAM'}
           </Text>
           {goal && onRedoGoal && (
             <Pressable onPress={() => onRedoGoal(goal)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginTop: 4, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }}>
@@ -263,10 +318,17 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
         )}
       </View>
 
-      {/* On a goal's path, a slim constellation strip hops between paths and back
-          to the Dream. The Dream overview needs no switcher — the map below IS
-          the switcher (tap a planet). */}
-      {goal && <ConstellationStrip goals={goals} view={view} onSelect={(id) => { setView(id); setSelected(null); setExpandedStep(null) }} />}
+      {/* On a goal's path or a category view, a slim constellation strip hops
+          between the five categories and back to the Dream. The Dream overview
+          needs no switcher — the map below IS the switcher (tap a planet). */}
+      {(goal || catView) && (
+        <ConstellationStrip
+          goals={goals}
+          activeCat={goal ? normalizeCategory(goal.category) : catView}
+          onSelectDream={() => { setView('dream'); setSelected(null); setExpandedStep(null) }}
+          onSelectCategory={openCategory}
+        />
+      )}
 
       <View style={{ flex: 1 }}>
         {/* Parallax starfield — drifts up slower than the road as you scroll, giving depth. */}
@@ -474,6 +536,17 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
           )}
         </View>
         </Animated.ScrollView>
+        ) : catView ? (
+          <CategoryView
+            key={catView}
+            categoryKey={catView}
+            goals={goalsInCategory(catView)}
+            creating={creating === catView}
+            W={W}
+            scrollY={scrollY}
+            onSelectGoal={(id) => { setView(id); setSelected(null); setExpandedStep(null) }}
+            onCreate={() => createGoalInCategory(catView)}
+          />
         ) : (
           <CelestialMap
             goals={goals}
@@ -483,7 +556,8 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
             H={mapH}
             pulse={pulse}
             scrollY={scrollY}
-            onSelectGoal={(id) => { setView(id); setSelected(null); setExpandedStep(null) }}
+            onSelectCategory={openCategory}
+            creating={creating}
             onStarPress={() => setSelected({ horizon: 'The dream', title: 'The Dream', detail: `${dreamPct}% of the whole journey is lit`, lit: dreamPct >= 100, accent: C.amber })}
             onOpenSprints={onOpenSprints}
           />
@@ -625,46 +699,48 @@ function Planet({ size, color, idx, uid }) {
   )
 }
 
+// Average progress across a set of goals (0 when the category is empty).
+const categoryPct = (catGoals) =>
+  catGoals.length ? clampN(Math.round(catGoals.reduce((s, g) => s + clampN(Math.round(g.progress || 0), 0, 100), 0) / catGoals.length), 0, 100) : 0
+
 // THE DREAM overview — a celestial map. The North Star (the dream) shines at the
-// top; every goal is a planet below with a line running up to it. Each line
-// lights up from the planet toward the star to the goal's progress (and GLIDES
-// when it changes, like the road). Tap a planet to walk that goal's path; tap
-// the star for the dream card. Goal-linked sprints show as a ⚡ satellite on
-// their planet; sprints not tied to a goal float near home at the bottom.
-function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelectGoal, onStarPress, onOpenSprints }) {
+// top; the FIVE life categories are planets below, each with a line running up
+// to it. A category's line lights up to its goals' average progress (and GLIDES
+// when it changes). Tap a category to explore it — one goal opens its road, more
+// open the category view, none offers to create one. A category with an active
+// linked sprint wears a ⚡ satellite; sprints tied to no goal float near home.
+function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelectCategory, creating, onStarPress, onOpenSprints }) {
   const STAR_Y = 128
   const P_Y0 = 288
   const P_DY = 148
-  const colors = goalColorMap(goals)
-  const rows = goals.map((g, i) => {
+  const rows = CATEGORIES.map((c, i) => {
+    const catGoals = goals.filter((g) => normalizeCategory(g.category) === c.key)
     // Zigzag down from the star with a touch of deterministic jitter, so the
     // planets scatter like a constellation instead of sitting on rails.
     const xf = (i % 2 === 0 ? 0.28 : 0.72) + (((i * 53) % 5) - 2) / 100
     return {
-      id: g.id,
-      title: g.title,
-      color: colors[g.id] || C.amber,
-      pct: clampN(Math.round(g.progress || 0), 0, 100),
+      key: c.key,
+      label: c.label,
+      color: c.color,
+      count: catGoals.length,
+      pct: categoryPct(catGoals),
       x: Math.round(xf * W),
       y: P_Y0 + i * P_DY,
-      size: [42, 34, 38, 32, 40][i % 5],
-      sprints: sprints.filter((s) => s.linkedGoalId === g.id).length,
+      size: catGoals.length ? 42 : 34,
+      sprints: sprints.filter((s) => s.linkedGoalId && catGoals.some((g) => g.id === s.linkedGoalId)).length,
     }
   })
   const loose = sprints.filter((s) => !s.linkedGoalId)
-  // H (content height) arrives from Roadmap, which mirrors this layout's math so
-  // the parallax starfield can span the same height.
   const sx = W / 2
   const sy = STAR_Y
 
-  // One Animated.Value per goal-line — glides to the new pct when a stepping
-  // stone lands, exactly like the road's lit portion.
+  // One Animated.Value per category-line — glides to the new average pct.
   const animRef = useRef({}).current
-  rows.forEach((r) => { if (!animRef[r.id]) animRef[r.id] = new Animated.Value(r.pct) })
-  const pctKey = rows.map((r) => `${r.id}:${r.pct}`).join('|')
+  rows.forEach((r) => { if (!animRef[r.key]) animRef[r.key] = new Animated.Value(r.pct) })
+  const pctKey = rows.map((r) => `${r.key}:${r.pct}`).join('|')
   useEffect(() => {
     rows.forEach((r) => {
-      Animated.timing(animRef[r.id], { toValue: r.pct, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+      Animated.timing(animRef[r.key], { toValue: r.pct, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pctKey])
@@ -680,7 +756,7 @@ function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelect
         <Svg width={W} height={H} style={StyleSheet.absoluteFill}>
           <Defs>
             {rows.map((r) => (
-              <SvgGrad key={r.id} id={`ll-${r.id}`} x1={r.x} y1={r.y} x2={sx} y2={sy} gradientUnits="userSpaceOnUse">
+              <SvgGrad key={r.key} id={`ll-${r.key}`} x1={r.x} y1={r.y} x2={sx} y2={sy} gradientUnits="userSpaceOnUse">
                 <Stop offset="0" stopColor={r.color} />
                 <Stop offset="1" stopColor={C.amber} />
               </SvgGrad>
@@ -690,18 +766,18 @@ function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelect
             const my = (r.y + sy) / 2
             const d = `M ${r.x} ${r.y} C ${r.x} ${my}, ${sx} ${my}, ${sx} ${sy}`
             return (
-              <React.Fragment key={r.id}>
-                {/* the line to the dream, and the lit portion you've climbed */}
-                <Path d={d} stroke="rgba(167,139,250,0.22)" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+              <React.Fragment key={r.key}>
+                {/* the line to the dream, and the lit portion the category has climbed */}
+                <Path d={d} stroke="rgba(167,139,250,0.18)" strokeWidth="2.5" fill="none" strokeLinecap="round" />
                 <AnimatedPath
                   d={d}
-                  stroke={`url(#ll-${r.id})`}
+                  stroke={`url(#ll-${r.key})`}
                   strokeWidth="2.5"
                   fill="none"
                   strokeLinecap="round"
                   pathLength={100}
                   strokeDasharray="100 100"
-                  strokeDashoffset={animRef[r.id].interpolate({ inputRange: [0, 100], outputRange: [100, 0] })}
+                  strokeDashoffset={animRef[r.key].interpolate({ inputRange: [0, 100], outputRange: [100, 0] })}
                 />
               </React.Fragment>
             )
@@ -730,38 +806,42 @@ function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelect
           {dreamPct}% of the journey
         </Text>
 
-        {/* The planets — one per goal */}
+        {/* The planets — one per category (all five, always) */}
         {rows.map((r, i) => {
           const cv = planetCanvas(r.size)
-          const complete = r.pct >= 100
+          const empty = r.count === 0
+          const complete = !empty && r.pct >= 100
           return (
-            <View key={r.id} pointerEvents="box-none" style={{ position: 'absolute', left: r.x - 70, top: r.y - cv / 2, width: 140, alignItems: 'center' }}>
-              <Pressable onPress={() => onSelectGoal(r.id)} hitSlop={8} style={{ alignItems: 'center' }}>
+            <View key={r.key} pointerEvents="box-none" style={{ position: 'absolute', left: r.x - 70, top: r.y - cv / 2, width: 140, alignItems: 'center' }}>
+              <Pressable onPress={() => onSelectCategory(r.key)} hitSlop={8} style={{ alignItems: 'center', opacity: empty ? 0.6 : 1 }}>
                 <View style={[{ width: cv, height: cv, borderRadius: cv / 2, alignItems: 'center', justifyContent: 'center' }, complete && { shadowColor: r.color, shadowOpacity: 0.9, shadowRadius: 14, shadowOffset: { width: 0, height: 0 } }]}>
-                  <Planet size={r.size} color={r.color} idx={i} uid={`m-${r.id}`} />
-                  {/* how far this world has come */}
-                  <View pointerEvents="none" style={{ position: 'absolute' }}>
-                    <ProgressRing pct={r.pct} color={r.color} size={r.size + 14} />
-                  </View>
-                  {/* active sprints on this goal orbit as a ⚡ satellite */}
+                  <Planet size={r.size} color={r.color} idx={i} uid={`m-${r.key}`} />
+                  {!empty && (
+                    <View pointerEvents="none" style={{ position: 'absolute' }}>
+                      <ProgressRing pct={r.pct} color={r.color} size={r.size + 14} />
+                    </View>
+                  )}
+                  {/* an active sprint in this category orbits as a ⚡ satellite */}
                   {r.sprints > 0 && (
                     <Pressable onPress={onOpenSprints} hitSlop={6} style={{ position: 'absolute', top: 0, right: 6, width: 18, height: 18, borderRadius: 9, backgroundColor: C.bg, borderWidth: 1, borderColor: r.color + '80', alignItems: 'center', justifyContent: 'center' }}>
                       <Zap size={9} color={r.color} fill={r.color} strokeWidth={2.4} />
                     </Pressable>
                   )}
+                  {/* a + on an empty category — tap to create a goal there */}
+                  {empty && (
+                    <View pointerEvents="none" style={{ position: 'absolute', bottom: -2, right: 2, width: 16, height: 16, borderRadius: 8, backgroundColor: C.bg, borderWidth: 1, borderColor: r.color + '99', alignItems: 'center', justifyContent: 'center' }}>
+                      {creating === r.key ? <ActivityIndicator size={9} color={r.color} /> : <Plus size={10} color={r.color} strokeWidth={3} />}
+                    </View>
+                  )}
                 </View>
-                <Text numberOfLines={2} style={{ marginTop: 2, width: 132, textAlign: 'center', fontFamily: F.semibold, fontSize: 11.5, lineHeight: 15, color: C.ink2 }}>{r.title}</Text>
-                <Text style={{ marginTop: 2, fontFamily: F.bold, fontSize: 10.5, color: r.color }}>{complete ? '🏆 100%' : `${r.pct}%`}</Text>
+                <Text numberOfLines={1} style={{ marginTop: 4, width: 132, textAlign: 'center', fontFamily: F.semibold, fontSize: 12.5, color: C.ink2 }}>{r.label}</Text>
+                <Text style={{ marginTop: 1, fontFamily: F.bold, fontSize: 10, color: empty ? C.faint : r.color }}>
+                  {empty ? 'no goals yet' : complete ? '🏆 100%' : `${r.count} goal${r.count === 1 ? '' : 's'} · ${r.pct}%`}
+                </Text>
               </Pressable>
             </View>
           )
         })}
-
-        {rows.length === 0 && (
-          <Text style={{ position: 'absolute', top: sy + 150, left: 32, right: 32, textAlign: 'center', fontFamily: F.body, fontSize: 13, lineHeight: 20, color: C.dim }}>
-            No goals yet — talk to Nova to chart your path.
-          </Text>
-        )}
 
         {/* Sprints not tied to a goal — floating near home, tap → Sprints */}
         {loose.slice(0, 3).map((s, i) => (
@@ -777,42 +857,106 @@ function CelestialMap({ goals, dreamPct, sprints, W, H, pulse, scrollY, onSelect
           </View>
         )}
 
-        {rows.length > 0 && (
-          <Text style={{ position: 'absolute', top: H - 58, left: 0, width: W, textAlign: 'center', fontFamily: F.medium, fontSize: 10.5, color: C.faint2 }}>
-            Tap a planet to walk its path
-          </Text>
-        )}
+        <Text style={{ position: 'absolute', top: H - 58, left: 0, width: W, textAlign: 'center', fontFamily: F.medium, fontSize: 10.5, color: C.faint2 }}>
+          Tap a category to explore it
+        </Text>
       </View>
     </Animated.ScrollView>
   )
 }
 
-// The slim switcher shown on a goal's path: the Dream star plus each goal as a
-// mini planet wearing its progress arc. Tap to hop paths, or the star to zoom
-// back out to the map.
-function ConstellationStrip({ goals, view, onSelect }) {
-  const colors = goalColorMap(goals)
+// The CATEGORY view — one category's goals as planets (tap → its road), plus an
+// "add another goal" affordance. When the category is empty it invites creating
+// the first goal there (NOVA drafts it from the intake). Reached from a category
+// planet (or the strip) that holds 0 or 2+ goals.
+function CategoryView({ categoryKey, goals, creating, W, scrollY, onSelectGoal, onCreate }) {
+  const cat = CATEGORIES.find((c) => c.key === categoryKey) || CATEGORIES[0]
+  // Match canAddGoal's per-category cap: only ACTIVE goals count, so finishing
+  // one frees a slot ("finish one to start another") even inside a full category.
+  const atCap = goals.filter((g) => (g.progress || 0) < 100).length >= 3
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center', columnGap: 16, rowGap: 8, paddingHorizontal: 12, marginTop: 8, marginBottom: 4 }}>
-      <Pressable onPress={() => onSelect('dream')} hitSlop={8} style={{ alignItems: 'center' }}>
+    <Animated.ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ paddingTop: 24, paddingBottom: 140, alignItems: 'center' }}
+      scrollEventThrottle={16}
+      onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+    >
+      {goals.length === 0 ? (
+        <View style={{ alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 }}>
+          <View style={{ width: 90, height: 90, borderRadius: 45, alignItems: 'center', justifyContent: 'center', opacity: 0.7 }}>
+            <Planet size={64} color={cat.color} idx={0} uid={`cv-${cat.key}`} />
+          </View>
+          <Text style={{ marginTop: 18, textAlign: 'center', fontFamily: F.semibold, fontSize: 15, color: C.ink, lineHeight: 22 }}>
+            You don’t have any goals in {cat.label} yet.
+          </Text>
+          <Text style={{ marginTop: 6, textAlign: 'center', fontFamily: F.body, fontSize: 12.5, color: C.dim, lineHeight: 19 }}>
+            Want NOVA to create one for you, based on your intake?
+          </Text>
+          <Pressable onPress={onCreate} disabled={!!creating} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 12, backgroundColor: cat.color + '1E', borderWidth: 1, borderColor: cat.color + '66' }}>
+            {creating ? <ActivityIndicator size={14} color={cat.color} /> : <Sparkles size={15} color={cat.color} strokeWidth={2.2} />}
+            <Text style={{ fontFamily: F.bold, fontSize: 13.5, color: cat.color }}>{creating ? 'NOVA is drafting…' : 'Create a goal with NOVA'}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 4, maxWidth: W }}>
+            {goals.map((g, i) => {
+              const pct = clampN(Math.round(g.progress || 0), 0, 100)
+              const complete = pct >= 100
+              return (
+                <Pressable key={g.id} onPress={() => onSelectGoal(g.id)} hitSlop={6} style={{ width: Math.min(150, W / 2 - 8), alignItems: 'center', marginVertical: 12 }}>
+                  <View style={[{ width: planetCanvas(46), height: planetCanvas(46), borderRadius: planetCanvas(46) / 2, alignItems: 'center', justifyContent: 'center' }, complete && { shadowColor: cat.color, shadowOpacity: 0.9, shadowRadius: 14 }]}>
+                    <Planet size={46} color={cat.color} idx={i} uid={`cvg-${g.id}`} />
+                    <View pointerEvents="none" style={{ position: 'absolute' }}>
+                      <ProgressRing pct={pct} color={cat.color} size={60} />
+                    </View>
+                  </View>
+                  <Text numberOfLines={2} style={{ marginTop: 4, width: 140, textAlign: 'center', fontFamily: F.semibold, fontSize: 11.5, lineHeight: 15, color: C.ink2 }}>{g.title}</Text>
+                  <Text style={{ marginTop: 1, fontFamily: F.bold, fontSize: 10, color: cat.color }}>{complete ? '🏆 100%' : `${pct}%`}</Text>
+                </Pressable>
+              )
+            })}
+          </View>
+          <Pressable onPress={atCap ? undefined : onCreate} disabled={atCap || !!creating} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 11, backgroundColor: atCap ? 'transparent' : cat.color + '18', borderWidth: 1, borderColor: atCap ? C.lineStrong : cat.color + '55' }}>
+            {creating ? <ActivityIndicator size={13} color={cat.color} /> : <Plus size={14} color={atCap ? C.faint : cat.color} strokeWidth={2.6} />}
+            <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: atCap ? C.faint : cat.color }}>
+              {atCap ? 'Max 3 goals in a category' : creating ? 'NOVA is drafting…' : 'Add another goal'}
+            </Text>
+          </Pressable>
+        </>
+      )}
+    </Animated.ScrollView>
+  )
+}
+
+// The slim switcher shown on a goal's path / category view: the Dream star plus
+// the five categories as mini planets wearing their average-progress arc. Tap a
+// category to hop to it (resolves to its goal or view), or the star for the map.
+function ConstellationStrip({ goals, activeCat, onSelectDream, onSelectCategory }) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center', columnGap: 14, rowGap: 8, paddingHorizontal: 12, marginTop: 8, marginBottom: 4 }}>
+      <Pressable onPress={onSelectDream} hitSlop={8} style={{ alignItems: 'center' }}>
         <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1.5, borderColor: C.lineStrong }}>
           <Text style={{ fontSize: 13, color: C.amber }}>✦</Text>
         </View>
         <Text style={{ marginTop: 3, fontFamily: F.medium, fontSize: 8.5, color: C.faint }}>Dream</Text>
       </Pressable>
-      {goals.map((g, i) => {
-        const on = view === g.id
-        const color = colors[g.id] || C.amber
-        const pct = clampN(Math.round(g.progress || 0), 0, 100)
+      {CATEGORIES.map((c, i) => {
+        const catGoals = goals.filter((g) => normalizeCategory(g.category) === c.key)
+        const on = activeCat === c.key
+        const empty = catGoals.length === 0
+        const pct = categoryPct(catGoals)
         return (
-          <Pressable key={g.id} onPress={() => onSelect(g.id)} hitSlop={6} style={{ alignItems: 'center', opacity: on ? 1 : 0.5 }}>
-            <View style={[{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }, on && { shadowColor: color, shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }]}>
-              <Planet size={18} color={color} idx={i} uid={`s-${g.id}`} />
-              <View pointerEvents="none" style={{ position: 'absolute' }}>
-                <ProgressRing pct={pct} color={color} size={28} />
-              </View>
+          <Pressable key={c.key} onPress={() => onSelectCategory(c.key)} hitSlop={6} style={{ alignItems: 'center', opacity: on ? 1 : empty ? 0.4 : 0.6 }}>
+            <View style={[{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }, on && { shadowColor: c.color, shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }]}>
+              <Planet size={18} color={c.color} idx={i} uid={`s-${c.key}`} />
+              {!empty && (
+                <View pointerEvents="none" style={{ position: 'absolute' }}>
+                  <ProgressRing pct={pct} color={c.color} size={28} />
+                </View>
+              )}
             </View>
-            <Text style={{ marginTop: 3, fontFamily: on ? F.bold : F.medium, fontSize: 8.5, color: on ? color : C.faint }}>{pct}%</Text>
+            <Text numberOfLines={1} style={{ marginTop: 3, fontFamily: on ? F.bold : F.medium, fontSize: 8.5, color: on ? c.color : C.faint }}>{c.label}</Text>
           </Pressable>
         )
       })}

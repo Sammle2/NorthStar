@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,27 +10,22 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react-native'
+import { ArrowLeft, Eye, EyeOff, RefreshCw } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import GlowProgress from '../components/GlowProgress'
 import { MessageBubble, TypingDots } from '../components/ChatBits'
 import {
   COACH_MESSAGES,
-  CURRENT_LEVELS,
-  CURRENT_QUESTIONS,
-  DESIRE_LEVELS,
-  FUTURE_QUESTIONS,
   actionableTitle,
   buildGoal,
   capName,
-  deriveDomainSignals,
-  dreamFocus,
   generateDreamStory,
   normalizeAiGoal,
   validateGoal,
 } from '../aiEngine'
-import { generateDreamLifeStory, generateRoadmap, refineCommitments, reviewGoals } from '../../services/aiService'
+import { CATEGORIES, normalizeCategory } from '../mockData'
+import { generateDreamLifeStory, generateGoalsForFocus, generateRoadmap } from '../../services/aiService'
 
 const TONES = [
   { id: 'tough', label: 'Tough Love', desc: 'No BS, high expectations', emoji: '💪' },
@@ -41,49 +37,73 @@ const GENDERS = ['Male', 'Female', 'Prefer not to say']
 let idc = 0
 const nid = () => `m${Date.now()}_${idc++}`
 
-// Build the shared AI grounding from both intake sections — the ratings + notes
-// that the commitment refinement, the roadmaps, and the future-vision all draw
-// on. Also derives the dream descriptor (their strongest desires + who they want
-// to become) and the `extra` free-text that doubles as dreamDescription.
-const buildIntakeContext = (current, future, pursuing = '') => {
-  const { answers, satisfaction } = deriveDomainSignals(current, future)
-  const focus = dreamFocus(answers, satisfaction)
+// Build the shared AI grounding from the 5-category intake — the per-category
+// now→goal ratings and what the user is already carrying. Produces the situation
+// text every generation prompt reads, a short dream anchor, the `extra` that
+// doubles as dreamDescription, an `answers` map (category → 0–3 importance) for
+// the local dream-story fallback, and a focus hint ('others'|'self'|'balanced').
+const buildIntakeContext = (ratings = {}, focus = {}, pursuing = '') => {
+  const rows = CATEGORIES.map((c) => {
+    const r = ratings[c.key] || {}
+    const now = Number.isFinite(+r.now) ? +r.now : 0
+    const goal = Number.isFinite(+r.goal) ? +r.goal : 0
+    return { key: c.key, label: c.label, blurb: c.blurb, now, goal, gap: Math.max(0, goal - now) }
+  })
+  // Importance for the local story: how high they want to reach in each area.
+  const answers = {}
+  rows.forEach((r) => { answers[r.key] = Math.max(0, Math.min(3, Math.round((r.goal / 10) * 3))) })
 
-  const noteLines = []
-  CURRENT_QUESTIONS.forEach((q) => {
-    const n = (current?.[q.key]?.note || '').trim()
-    if (n) noteLines.push(`${q.label} (today): ${n}`)
-  })
-  FUTURE_QUESTIONS.forEach((q) => {
-    const n = (future?.[q.key]?.note || '').trim()
-    if (n) noteLines.push(`${q.label}: ${n}`)
-  })
-  const extra = noteLines.join('\n').slice(0, 1200)
+  const top = [...rows].sort((a, b) => b.gap - a.gap).filter((r) => r.gap > 0).slice(0, 3)
+  const topKeys = top.map((r) => r.key)
+  const focusHint = topKeys.includes('relationships') && !topKeys.includes('work')
+    ? 'others'
+    : (topKeys.includes('work') || topKeys.includes('mind')) && !topKeys.includes('relationships')
+      ? 'self'
+      : 'balanced'
 
-  const fmt = (qs, map) => qs.map((q) => {
-    const e = map?.[q.key] || {}
-    const note = (e.note || '').trim()
-    return `- ${q.label}: ${e.rating || '?'} of 4${note ? ` — "${note}"` : ''}`
-  })
   const pursuit = (pursuing || '').trim()
   const situation = [
-    'Where they are today (1 = very low, 4 = very strong):',
-    ...fmt(CURRENT_QUESTIONS, current),
-    "Where they're going (1 = not important, 4 = core desire):",
-    ...fmt(FUTURE_QUESTIONS, future),
-    ...(pursuit ? ["What they're already pursuing / committed to right now:", pursuit] : []),
-  ].join('\n').slice(0, 2200)
+    'Where they are now → where they want to be (0 = struggling, 10 = thriving):',
+    ...rows.map((r) => `- ${r.label} (${r.blurb}): ${r.now} → ${r.goal}`),
+    ...(pursuit ? ["What they're already carrying right now:", pursuit] : []),
+  ].join('\n').slice(0, 2000)
 
-  // A short dream anchor: who they want to become + the desires they marked
-  // as core (rating 4) — used to ground the commitment refinement and story.
-  const identity = (future?.identity?.note || '').trim()
-  const core = FUTURE_QUESTIONS
-    .filter((q) => Number(future?.[q.key]?.rating) >= 4)
-    .map((q) => q.label.replace(/^Desired /i, '').toLowerCase())
-    .slice(0, 3)
-  const dream = [identity, core.length ? `craving ${core.join(', ')}` : ''].filter(Boolean).join(' — ')
+  const grow = top.map((r) => r.label.toLowerCase()).join(', ')
+  const extra = [grow ? `Most wants to grow: ${grow}.` : '', pursuit ? `Already carrying: ${pursuit}.` : '']
+    .filter(Boolean).join(' ').slice(0, 1200)
+  const dream = grow ? `growing ${grow}` : 'a life of steady progress across every area'
 
-  return { answers, satisfaction, focus, extra, situation, dream }
+  return { answers, focus: focusHint, extra, situation, dream }
+}
+
+// Local starter goals per category — used only when the AI proposal is
+// unavailable (offline), so the flow always has editable, SMART-shaped titles.
+const STARTER_TITLES = {
+  mind: ['Read 12 Books This Year', 'Build a Daily 30-Minute Focus Block', 'Learn One New Skill in 90 Days'],
+  body: ['Work Out 3 Times a Week', 'Sleep 7+ Hours Every Night', 'Run a 5K in 12 Weeks'],
+  spirit: ['Meditate 10 Minutes Daily for 90 Days', 'Journal Every Morning for a Month', 'Write Down My Core Values'],
+  work: ['Grow My Income by 20% This Year', 'Save a 3-Month Emergency Fund', 'Ship One Portfolio Project in 90 Days'],
+  relationships: ['Have One Real Catch-Up Every Week', 'Plan a Monthly Date or Family Night', 'Reconnect With 3 Friends This Quarter'],
+}
+const localGoalTitle = (cat, i) => (STARTER_TITLES[cat] || STARTER_TITLES.mind)[i % 3]
+
+// Turn the AI's loose [{category,title}] into exactly focus[cat] goals per
+// category (in framework order), padding any shortfall with local starters.
+const shapeProposed = (aiGoals, focus) => {
+  const byCat = {}
+  ;(aiGoals || []).forEach((g) => {
+    const cat = normalizeCategory(g.category)
+    if (!focus[cat]) return
+    const t = String(g.title || '').trim()
+    if (t) (byCat[cat] = byCat[cat] || []).push(t)
+  })
+  const out = []
+  CATEGORIES.forEach((c) => {
+    const want = focus[c.key] || 0
+    const got = byCat[c.key] || []
+    for (let i = 0; i < want; i++) out.push({ category: c.key, title: got[i] || localGoalTitle(c.key, i) })
+  })
+  return out
 }
 
 // Screen 2 — the Coach's first conversation: intake form (incl. picking a
@@ -93,11 +113,11 @@ const buildIntakeContext = (current, future, pursuing = '') => {
 // an editable review (Nova re-checks each edit stays SMART) → tone → generate.
 export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onBack }) {
   const [messages, setMessages] = useState([])
-  const [step, setStep] = useState('intake') // intake | current | future | pursuing | goal | review | tone | generating
+  const [step, setStep] = useState('intake') // intake | ratings | priorities | pursuing | propose | tone | generating
   const [isTyping, setIsTyping] = useState(false)
   const [toneSelected, setToneSelected] = useState(false)
   const [progress, setProgress] = useState(0)
-  const data = useRef({ name: '', age: '', gender: '', username: '', email: '', current: {}, future: {}, pursuing: '', rawCommitments: [], refined: [], finalGoals: [] })
+  const data = useRef({ name: '', age: '', gender: '', username: '', email: '', ratings: {}, focus: {}, pursuing: '', proposed: [] })
   const scrollRef = useRef(null)
 
   const addCoach = (text, delay = 700) =>
@@ -131,127 +151,81 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
     }
 
     addUser(`${capped} · ${age} · ${gender}${username ? ` · @${username}` : ''}`)
-    setStep('current')
-    await addCoach(COACH_MESSAGES.default.dreamIntro, 1000)
+    setStep('ratings')
+    await addCoach("Let's map your life across five areas — Mind, Body, Spirit, Work, and Relationships. For each, mark where you are now and where you want to be.", 1000)
     return null
   }
 
-  const submitCurrent = async (current) => {
-    data.current = { ...data.current, current }
-    addUser('Mapped where I am')
-    setStep('future')
-    await addCoach(COACH_MESSAGES.default.futureIntro, 900)
+  // Where they are now vs. where they want to be, across the five categories.
+  const submitRatings = async (ratings) => {
+    data.current = { ...data.current, ratings }
+    addUser('Mapped all five areas')
+    setStep('priorities')
+    await addCoach('Which of these matter most right now — and how many goals do you want in each? Keep it focused: up to 5 goals total, and no more than 3 in any one area.', 1000)
   }
 
-  const submitFuture = async (future) => {
-    data.current = { ...data.current, future }
-    addUser('Mapped where I want to go')
+  // How many goals per category (≤5 total, ≤3 each). The stepper enforces caps.
+  const submitPriorities = async (focus) => {
+    data.current = { ...data.current, focus }
+    const total = Object.values(focus).reduce((s, n) => s + n, 0)
+    addUser(`Focusing on ${total} goal${total === 1 ? '' : 's'}`)
     setStep('pursuing')
-    await addCoach(COACH_MESSAGES.default.pursuingPrompt, 1000)
+    await addCoach("One more thing before I draft them — what are you already carrying right now? School, a job, a relationship, a project. It helps me fit these goals to your real life.", 1100)
   }
 
-  // What they're already carrying — grounds the forward commitments in a real,
-  // already-full life so the goals Nova builds are actually attainable.
+  // What they're already carrying, then NOVA proposes the goals from the intake.
   const submitPursuing = async (pursuing) => {
     data.current = { ...data.current, pursuing }
     addUser(pursuing && pursuing.trim() ? pursuing.trim() : 'Nothing structured right now')
-    // Show the prompt first, THEN reveal the card — the commitments card is not
-    // gated on isTyping (so a rejection's typing indicator can't wipe the user's
-    // edits mid-submit), so we only switch to it once Nova has finished asking.
-    await addCoach(COACH_MESSAGES.default.goalPrompt, 1200)
-    setStep('goal')
+    setIsTyping(true)
+    const { ratings, focus, name } = data.current
+    let proposed
+    try {
+      const ai = await generateGoalsForFocus({ focus, ratings, pursuing, name, tone: 'default' })
+      proposed = shapeProposed(ai, focus)
+    } catch (e) {
+      console.warn('[Onboarding] focus-goal generation failed, using local starters:', e?.message)
+      proposed = shapeProposed([], focus)
+    }
+    data.current = { ...data.current, proposed }
+    setIsTyping(false)
+    // Prompt-before-setStep: the propose card is not gated on isTyping, so we
+    // reveal it only once Nova has finished speaking.
+    await addCoach("Here's where I'd focus your energy. Agree with each one, tweak the wording, or regenerate any that don't fit — then we'll build the roadmaps.", 1100)
+    setStep('propose')
   }
 
-  // The three commitments → Nova elevates each into an overarching SMART goal,
-  // then hands them to the editable review. Returns an error STRING to the card
-  // (kept editable) when they need another pass, or null on success (advance to
-  // review). Fails open: an API hiccup shapes the raw commitments locally.
-  const submitCommitments = async (rawGoals) => {
-    const rejected = data.current.commitmentAttempts || []
-
-    // Fast local pre-filter each — catches empty/gibberish/impossible offline.
-    for (let i = 0; i < rawGoals.length; i++) {
-      const check = validateGoal(rawGoals[i])
-      if (!check.ok) return `Commitment ${i + 1}: ${check.clarify}`
-    }
-
-    addUser(rawGoals.map((g, i) => `${i + 1}. ${g}`).join('\n'))
-    setIsTyping(true)
-    const ctx = buildIntakeContext(data.current.current, data.current.future, data.current.pursuing)
-    const res = await refineCommitments({
-      name: data.current.name,
-      rawGoals,
-      dream: ctx.dream,
-      situation: ctx.situation,
-      tone: 'default',
-      attempt: rejected.length + 1,
-      rejected,
-    })
-    setIsTyping(false)
-
-    // Nova sent one back — keep the card editable and show why.
-    if (res && res.ok === false) {
-      data.current = { ...data.current, commitmentAttempts: [...rejected, ...rawGoals] }
-      return res.message || "One of those isn't quite a goal we can build yet — make it a little more concrete and overarching."
-    }
-
-    // Success, or fail-open (res === null → shape the raw commitments locally so
-    // onboarding never stalls on an API error).
-    const refined = res && res.ok && res.goals.length
-      ? res.goals
-      : rawGoals.map((g) => ({ title: actionableTitle(g), category: '', timeframeMonths: 6, rootAction: g }))
-    data.current = { ...data.current, rawCommitments: rawGoals, refined }
-
-    const titles = refined.map((r, i) => `${i + 1}. ${r.title}`).join('\n')
-    await addCoach(`Here's how I'd frame these as goals you can actually build toward:\n\n${titles}\n\nMake them yours — edit any of them below. I'll just make sure each one stays a real, trackable goal (not a one-off task).`, 1100)
-    setStep('review')
+  // Regenerate a single proposed goal in place (its category, one fresh title).
+  // Returns a new title string, or null to keep the current one (AI unavailable).
+  const regenerateProposed = async (index) => {
+    const p = data.current.proposed[index]
+    if (!p) return null
+    try {
+      const ai = await generateGoalsForFocus({ focus: { [p.category]: 1 }, ratings: data.current.ratings, pursuing: data.current.pursuing, name: data.current.name, tone: 'default' })
+      const hit = ai.find((g) => normalizeCategory(g.category) === p.category) || ai[0]
+      const t = hit && String(hit.title || '').trim()
+      if (t) {
+        data.current = { ...data.current, proposed: data.current.proposed.map((x, i) => (i === index ? { ...x, title: t } : x)) }
+        return t
+      }
+    } catch (e) { /* keep current */ }
     return null
   }
 
-  // The editable review: the user tweaks Nova's three goals. Only the goals they
-  // actually CHANGED are re-checked (the untouched ones are Nova's own already-
-  // SMART goals and pass straight through — Nova never re-litigates its own
-  // suggestions). If an edited goal slips into a vague or one-off/short-term task,
-  // Nova explains why and points them to Sprints. Returns true when accepted
-  // (advance to tone), false when Nova sent one back (card stays editable).
-  const submitReview = async (editedTitles) => {
-    const refined = data.current.refined || []
-    const changedIdx = editedTitles
-      .map((t, i) => (t !== (refined[i]?.title || '') ? i : -1))
-      .filter((i) => i >= 0)
-
-    let finalGoals
-    if (changedIdx.length === 0) {
-      // Nothing edited — all three are already SMART.
-      finalGoals = refined
-    } else {
-      addUser(editedTitles.map((t, i) => `${i + 1}. ${t}`).join('\n'))
-      setIsTyping(true)
-      const ctx = buildIntakeContext(data.current.current, data.current.future, data.current.pursuing)
-      const res = await reviewGoals({ name: data.current.name, goals: editedTitles, editedIndices: changedIdx, dream: ctx.dream, situation: ctx.situation, tone: 'default' })
-      setIsTyping(false)
-
-      // An edited goal needs to be more SMART (or it's really a short-term Sprint).
-      if (res && res.ok === false) {
-        await addCoach(res.message || "One of your edits reads more like a one-off task than a long-term goal — let's make it specific and measurable, or save it as a Sprint later.", 1000)
-        return false
-      }
-
-      // Accepted (or fail-open). Unchanged goals keep their refined object (with
-      // rootAction so a demoted one-and-done still seeds a stepping stone); each
-      // edited goal takes Nova's reviewed shape, falling back to its raw title.
-      const reviewed = res && res.ok && res.goals.length ? res.goals : null
-      finalGoals = editedTitles.map((t, i) => {
-        if (t === (refined[i]?.title || '')) return refined[i]
-        const rv = reviewed && reviewed[i] ? reviewed[i] : { title: t, category: '', timeframeMonths: 6 }
-        return { ...rv, rootAction: '' }
-      })
+  // The user agrees to (and optionally edits) the proposed goals. A fast local
+  // guardrail rejects empty/gibberish edits; on success we advance to tone.
+  // Returns an error STRING (card stays editable) or null (advance).
+  const submitPropose = async (finalTitles) => {
+    for (let i = 0; i < finalTitles.length; i++) {
+      const check = validateGoal(finalTitles[i])
+      if (!check.ok) return `Goal ${i + 1}: ${check.clarify}`
     }
-
-    data.current = { ...data.current, finalGoals }
+    const proposed = data.current.proposed.map((p, i) => ({ ...p, title: finalTitles[i].trim() }))
+    data.current = { ...data.current, proposed }
+    addUser(proposed.map((p, i) => `${i + 1}. ${p.title}`).join('\n'))
     setStep('tone')
     await addCoach('Locked in. Last thing: how do you want me to coach you?', 900)
-    return true
+    return null
   }
 
   const handleTone = async (tone) => {
@@ -262,13 +236,13 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
     await addCoach(COACH_MESSAGES[tone].toneConfirm, 800)
     await addCoach(COACH_MESSAGES[tone].generating, 600)
 
-    const { name, age, gender, current, future, pursuing, finalGoals, refined } = data.current
+    const { name, age, gender, ratings, focus: categoryFocus, pursuing, proposed } = data.current
     const now = new Date().toISOString()
-    const { answers, satisfaction, focus, extra, situation } = buildIntakeContext(current, future, pursuing)
+    const { answers, focus, extra, situation } = buildIntakeContext(ratings, categoryFocus, pursuing)
 
-    // The three commitments (post-review), elevated to overarching goals. Their
-    // joined titles are the "dream" the future-vision reads as their path.
-    const commitments = (finalGoals && finalGoals.length ? finalGoals : refined || []).slice(0, 3)
+    // The proposed goals the user agreed to (one per category-slot they chose).
+    // Their joined titles are the "dream" the future-vision reads as their path.
+    const commitments = (proposed || []).slice(0, 5)
     const goalForStory = commitments.map((r) => r.title).join('; ')
     const goalTitle = commitments[0]?.title || actionableTitle(goalForStory)
 
@@ -311,24 +285,15 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
     const goals = await Promise.all(
       commitments.map(async (r, i) => {
         const id = `goal-${i + 1}`
-        const tf = Math.round(Number(r.timeframeMonths))
-        const timeframeMonths = Number.isFinite(tf) ? Math.min(12, Math.max(3, tf)) : 6
         try {
-          const ai = await generateRoadmap({
-            name,
-            rawGoal: r.title,
-            extra,
-            tone,
-            situation,
-            context: r.rootAction && r.rootAction !== r.title ? r.rootAction : '',
-          })
+          const ai = await generateRoadmap({ name, rawGoal: r.title, extra, tone, situation })
           const built = normalizeAiGoal(ai, r.title, extra, id)
-          // Keep Nova's elevated, overarching title (what the user agreed to) —
-          // don't let the roadmap's own title guess pull it back to a task.
-          return { ...built, title: r.title, timeframeMonths }
+          // Keep the title the user agreed to and FORCE the category they chose —
+          // the goal belongs to the category-slot it was proposed in.
+          return { ...built, title: r.title, category: r.category }
         } catch (e) {
-          console.warn('[Onboarding] roadmap failed for commitment', i + 1, e?.message)
-          return { ...buildGoal(r.title, extra, id), timeframeMonths }
+          console.warn('[Onboarding] roadmap failed for goal', i + 1, e?.message)
+          return buildGoal(r.title, extra, id, r.category)
         } finally {
           bumpTarget() // this goal's roadmap done
         }
@@ -344,16 +309,15 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
       coachTone: tone,
       coachName: 'Nova',
       dreamAnswers: answers,
-      dreamSatisfaction: satisfaction,
-      currentState: current,
-      desiredFuture: future,
+      categoryRatings: ratings,
+      categoryFocus,
       currentPursuits: pursuing,
-      commitments,
       additionalInfo: extra,
-      dreamDescription: extra,
+      dreamDescription: extra || 'Building a life across Mind, Body, Spirit, Work, and Relationships.',
       primaryGoalRaw: commitments.map((r) => r.title).join(' · '),
       dreamStory,
       goals,
+      frameworkVersion: 2,
       nonNeg: {},
       sprints: [],
       streak: 0,
@@ -413,35 +377,16 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
           {isTyping && <TypingDots />}
 
           {!isTyping && step === 'intake' && <IntakeForm onSubmit={submitIntake} askAccount={!hasAccount} />}
-          {!isTyping && step === 'current' && (
-            <IntakeSection
-              kicker="WHERE I AM · HOW STRONG IS EACH TODAY?"
-              questions={CURRENT_QUESTIONS}
-              levels={CURRENT_LEVELS}
-              noteHint="Add context (optional)"
-              onSubmit={submitCurrent}
-            />
-          )}
-          {!isTyping && step === 'future' && (
-            <IntakeSection
-              kicker="WHERE I'M GOING · HOW MUCH DOES EACH MATTER?"
-              questions={FUTURE_QUESTIONS}
-              levels={DESIRE_LEVELS}
-              noteHint="Describe what you want (optional)"
-              onSubmit={submitFuture}
-            />
-          )}
-
+          {!isTyping && step === 'ratings' && <CategoryRatings onSubmit={submitRatings} />}
+          {!isTyping && step === 'priorities' && <CategoryPriorities onSubmit={submitPriorities} />}
           {!isTyping && step === 'pursuing' && <CurrentCommitments onSubmit={submitPursuing} />}
 
-          {/* The commitments + review cards are NOT gated on isTyping: they drive
-              their own AI calls and can re-display after a rejection, so a typing
-              indicator must not unmount them and wipe the user's edits. They only
-              appear once Nova's prompt has finished (prompt-before-setStep). */}
-          {step === 'goal' && <ThreeCommitments onSubmit={submitCommitments} />}
-
-          {step === 'review' && (
-            <ReviewGoals initial={(data.current.refined || []).map((r) => r.title)} onSubmit={submitReview} />
+          {/* The propose card is NOT gated on isTyping: it drives its own AI calls
+              (regenerate) and can re-display after a rejected edit, so a typing
+              indicator must not unmount it and wipe the user's edits. It only
+              appears once Nova's prompt has finished (prompt-before-setStep). */}
+          {step === 'propose' && (
+            <ProposedGoals initial={data.current.proposed || []} onSubmit={submitPropose} onRegenerate={regenerateProposed} />
           )}
 
           {step === 'tone' && !toneSelected && (
@@ -519,95 +464,66 @@ function CurrentCommitments({ onSubmit }) {
   )
 }
 
-// ── Editable review of Nova's three goals ────────────────────────────────────
-// Pre-filled with the overarching goals Nova built; the user can edit any. On
-// submit, unchanged goals pass straight through; edited ones are re-checked by
-// Nova (submitReview) — if one drifts into a vague or one-off/short-term task,
-// Nova explains why in chat and the card stays editable.
-function ReviewGoals({ initial, onSubmit }) {
-  const [titles, setTitles] = useState(() => [0, 1, 2].map((i) => initial[i] || ''))
+// ── NOVA's proposed goals — agree, tweak, or regenerate ──────────────────────
+// One card grouped by category. The user edits any title inline, regenerates any
+// single goal (onRegenerate → a fresh AI title for that category), then builds.
+// onSubmit returns an error STRING (card stays editable) or null (step advances).
+function ProposedGoals({ initial, onSubmit, onRegenerate }) {
+  const [titles, setTitles] = useState(() => initial.map((p) => p.title))
+  const [busyIdx, setBusyIdx] = useState(-1)
   const [busy, setBusy] = useState(false)
-  const ready = titles.every((t) => t.trim().length >= 3) && !busy
+  const [error, setError] = useState(null)
+  const ready = titles.length > 0 && titles.every((t) => t.trim().length >= 3) && !busy
   const setAt = (i, v) => setTitles((t) => t.map((x, j) => (j === i ? v : x)))
 
-  const submit = async () => {
-    setBusy(true)
-    const accepted = await onSubmit(titles.map((t) => t.trim()))
-    if (!accepted) setBusy(false)
-    // On accept the step changes and this card unmounts.
+  const regen = async (i) => {
+    setBusyIdx(i)
+    const t = await onRegenerate(i)
+    if (t) setAt(i, t)
+    setBusyIdx(-1)
   }
-
-  return (
-    <View style={cardStyle}>
-      <Text style={cardKicker}>YOUR THREE GOALS · EDIT ANY OF THEM</Text>
-      {[0, 1, 2].map((i) => (
-        <Field key={i} label={`Goal ${i + 1}`}>
-          <TextInput
-            value={titles[i]}
-            onChangeText={(v) => setAt(i, v)}
-            placeholder={`Goal ${i + 1}`}
-            placeholderTextColor={C.faint2}
-            autoComplete="off"
-            autoCorrect={false}
-            importantForAutofill="no"
-            multiline
-            style={[fieldInput, { minHeight: 46, textAlignVertical: 'top', paddingTop: 12 }]}
-          />
-        </Field>
-      ))}
-      <SubmitBar label={busy ? 'Checking with Nova…' : 'Lock in my goals'} disabled={!ready} onPress={submit} />
-    </View>
-  )
-}
-
-// ── Three commitments → Nova elevates each into an overarching SMART goal ─────
-// Three free-text lines (no preset goals). onSubmit returns an error string to
-// re-ask (card stays editable) or null on success (the step advances).
-const COMMIT_PLACEHOLDERS = [
-  'A commitment that feels alive and true…',
-  'One that feels necessary…',
-  'One that would open the path…',
-]
-function ThreeCommitments({ onSubmit }) {
-  const [goals, setGoals] = useState(['', '', ''])
-  const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const ready = goals.every((g) => g.trim().length >= 3) && !busy
-  const setAt = (i, v) => setGoals((g) => g.map((x, j) => (j === i ? v : x)))
-
   const submit = async () => {
     setBusy(true)
     setError(null)
-    const err = await onSubmit(goals.map((g) => g.trim()))
-    if (err) {
-      setError(err)
-      setBusy(false)
-    }
+    const err = await onSubmit(titles.map((t) => t.trim()))
+    if (err) { setError(err); setBusy(false) }
     // On success the step changes and this card unmounts.
   }
 
   return (
     <View style={cardStyle}>
-      <Text style={cardKicker}>THREE COMMITMENTS · NEXT 3–12 MONTHS</Text>
-      {[0, 1, 2].map((i) => (
-        <Field key={i} label={`Commitment ${i + 1}`}>
-          <TextInput
-            value={goals[i]}
-            onChangeText={(v) => setAt(i, v)}
-            placeholder={COMMIT_PLACEHOLDERS[i]}
-            placeholderTextColor={C.faint2}
-            autoComplete="off"
-            autoCorrect={false}
-            importantForAutofill="no"
-            multiline
-            style={[fieldInput, { minHeight: 46, textAlignVertical: 'top', paddingTop: 12 }]}
-          />
-        </Field>
-      ))}
+      <Text style={cardKicker}>YOUR GOALS · AGREE OR TWEAK</Text>
+      {initial.map((p, i) => {
+        const c = CATEGORIES.find((x) => x.key === p.category) || CATEGORIES[0]
+        return (
+          <View key={i} style={{ marginTop: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: c.color }} />
+              <Text style={{ fontFamily: F.bold, fontSize: 10, color: c.color, letterSpacing: 1 }}>{c.label.toUpperCase()}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+              <TextInput
+                value={titles[i]}
+                onChangeText={(v) => setAt(i, v)}
+                placeholder="Your goal"
+                placeholderTextColor={C.faint2}
+                autoComplete="off"
+                autoCorrect={false}
+                importantForAutofill="no"
+                multiline
+                style={[fieldInput, { flex: 1, minHeight: 46, textAlignVertical: 'top', paddingTop: 12 }]}
+              />
+              <Pressable onPress={() => regen(i)} disabled={busyIdx >= 0} hitSlop={6} style={{ width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong, opacity: busyIdx >= 0 && busyIdx !== i ? 0.4 : 1 }}>
+                {busyIdx === i ? <ActivityIndicator size={14} color={C.violet} /> : <RefreshCw size={15} color={C.violet} strokeWidth={2.2} />}
+              </Pressable>
+            </View>
+          </View>
+        )
+      })}
       {error && (
         <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.amber, marginTop: 14, lineHeight: 18 }}>{error}</Text>
       )}
-      <SubmitBar label={busy ? 'Building with Nova…' : 'Build these with Nova'} disabled={!ready} onPress={submit} />
+      <SubmitBar label={busy ? 'Building your roadmaps…' : 'Build these goals'} disabled={!ready} onPress={submit} />
     </View>
   )
 }
@@ -722,70 +638,112 @@ function IntakeForm({ onSubmit, askAccount }) {
   )
 }
 
-// ── Intake sections: 8 questions × (1–4 rating + optional note) ──────────────
-// One component serves both "Where I Am" (CURRENT_LEVELS: how present each is
-// today) and "Where I'm Going" (DESIRE_LEVELS: how much each matters). Notes
-// are the free-text depth the future-vision draws on.
-function IntakeSection({ kicker, questions, levels, noteHint, onSubmit }) {
-  const [ratings, setRatings] = useState({})
-  const [notes, setNotes] = useState({})
-  const allRated = questions.every((q) => ratings[q.key] !== undefined)
-
-  const submit = () => {
-    const out = {}
-    questions.forEach((q) => {
-      out[q.key] = { rating: ratings[q.key], note: (notes[q.key] || '').trim() }
-    })
-    onSubmit(out)
+// ── A 0–10 slider (tap or drag the track) ────────────────────────────────────
+function RatingSlider({ value, onChange, color = C.amber }) {
+  const [w, setW] = useState(0)
+  const set = (x) => {
+    if (!w) return
+    onChange(Math.round(Math.max(0, Math.min(1, x / w)) * 10))
   }
+  return (
+    <View
+      onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
+      onResponderGrant={(e) => set(e.nativeEvent.locationX)}
+      onResponderMove={(e) => set(e.nativeEvent.locationX)}
+      style={{ height: 28, justifyContent: 'center' }}
+    >
+      <View style={{ height: 6, borderRadius: 3, backgroundColor: C.lineStrong }}>
+        <View style={{ height: 6, borderRadius: 3, width: `${value * 10}%`, backgroundColor: color }} />
+      </View>
+      <View style={{ position: 'absolute', left: `${value * 10}%`, marginLeft: -9, width: 18, height: 18, borderRadius: 9, backgroundColor: color, borderWidth: 2, borderColor: C.bg }} />
+    </View>
+  )
+}
+
+const sliderLbl = { fontFamily: F.medium, fontSize: 11, color: C.faint }
+
+// ── Where you are now vs. where you want to be, across the five categories ────
+function CategoryRatings({ onSubmit }) {
+  const [vals, setVals] = useState(() => {
+    const o = {}
+    CATEGORIES.forEach((c) => { o[c.key] = { now: 5, goal: 7 } })
+    return o
+  })
+  // Keep goal ≥ now so the gap (what drives priority) is never negative.
+  const setV = (key, which, v) =>
+    setVals((s) => ({
+      ...s,
+      [key]: which === 'now' ? { ...s[key], now: Math.min(v, s[key].goal) } : { ...s[key], goal: Math.max(v, s[key].now) },
+    }))
 
   return (
     <View style={cardStyle}>
-      <Text style={cardKicker}>{kicker}</Text>
-      <View style={{ gap: 16, marginTop: 4 }}>
-        {questions.map((q, qi) => (
-          <View key={q.key}>
-            <Text style={{ fontFamily: F.medium, fontSize: 13.5, color: C.ink2, marginBottom: 8 }}>{q.label}</Text>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              {levels.map((lvl) => {
-                const on = ratings[q.key] === lvl.v
-                return (
-                  <Pressable
-                    key={lvl.v}
-                    onPress={() => setRatings((r) => ({ ...r, [q.key]: lvl.v }))}
-                    style={{
-                      flex: 1,
-                      borderRadius: 10,
-                      paddingVertical: 8,
-                      alignItems: 'center',
-                      backgroundColor: on ? 'rgba(245,158,11,0.16)' : C.violetFill07,
-                      borderWidth: 1,
-                      borderColor: on ? C.amber : C.lineMid,
-                    }}
-                  >
-                    <Text style={{ fontFamily: on ? F.bold : F.semibold, fontSize: 12.5, color: on ? C.amber : C.dim }}>{lvl.v}</Text>
-                    <Text style={{ fontFamily: on ? F.semibold : F.body, fontSize: 9.5, color: on ? C.amber : C.faint, textAlign: 'center', marginTop: 1 }}>
-                      {lvl.label}
-                    </Text>
-                  </Pressable>
-                )
-              })}
+      <Text style={cardKicker}>WHERE YOU ARE · WHERE YOU'RE GOING</Text>
+      <View style={{ gap: 4, marginTop: 12 }}>
+        {CATEGORIES.map((c, i) => (
+          <View key={c.key}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.color }} />
+              <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.ink }}>{c.label}</Text>
+              <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint, flex: 1 }} numberOfLines={1}>· {c.blurb}</Text>
             </View>
-            <TextInput
-              value={notes[q.key] || ''}
-              onChangeText={(t) => setNotes((n) => ({ ...n, [q.key]: t }))}
-              placeholder={noteHint}
-              placeholderTextColor={C.faint2}
-              autoComplete="off"
-              style={[fieldInput, { marginTop: 8, paddingVertical: 9, fontSize: 13 }]}
-            />
-            {qi < questions.length - 1 && (
-              <View style={{ height: 1, backgroundColor: 'rgba(167,139,250,0.1)', marginTop: 16 }} />
-            )}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={sliderLbl}>Now</Text><Text style={[sliderLbl, { color: C.dim, fontFamily: F.bold }]}>{vals[c.key].now}</Text>
+            </View>
+            <RatingSlider value={vals[c.key].now} onChange={(v) => setV(c.key, 'now', v)} color={C.dim} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+              <Text style={sliderLbl}>Goal</Text><Text style={[sliderLbl, { color: c.color, fontFamily: F.bold }]}>{vals[c.key].goal}</Text>
+            </View>
+            <RatingSlider value={vals[c.key].goal} onChange={(v) => setV(c.key, 'goal', v)} color={c.color} />
+            {i < CATEGORIES.length - 1 && <View style={{ height: 1, backgroundColor: 'rgba(167,139,250,0.1)', marginTop: 14, marginBottom: 2 }} />}
           </View>
         ))}
       </View>
-      <SubmitBar label={allRated ? 'Continue' : 'Rate all 8 to continue'} disabled={!allRated} onPress={submit} />
+      <SubmitBar label="Continue" onPress={() => onSubmit(vals)} />
+    </View>
+  )
+}
+
+// ── Which categories matter now + how many goals each (≤5 total, ≤3 each) ─────
+const stepBtn = (off) => ({ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill07, borderWidth: 1, borderColor: C.lineMid, opacity: off ? 0.35 : 1 })
+const stepTxt = { fontFamily: F.bold, fontSize: 18, color: C.ink2, lineHeight: 20 }
+function CategoryPriorities({ onSubmit }) {
+  const [counts, setCounts] = useState(() => {
+    const o = {}
+    CATEGORIES.forEach((c) => { o[c.key] = 0 })
+    return o
+  })
+  const total = Object.values(counts).reduce((s, n) => s + n, 0)
+  const inc = (key) => { if (total >= 5 || counts[key] >= 3) return; setCounts((s) => ({ ...s, [key]: s[key] + 1 })) }
+  const dec = (key) => setCounts((s) => ({ ...s, [key]: Math.max(0, s[key] - 1) }))
+
+  return (
+    <View style={cardStyle}>
+      <Text style={cardKicker}>WHICH MATTER NOW · HOW MANY GOALS</Text>
+      <Text style={{ fontFamily: F.body, fontSize: 12, color: C.faint, marginTop: 8, lineHeight: 18 }}>
+        Up to 5 goals total, at most 3 in any one area. Leave the ones that aren't a priority right now at zero.
+      </Text>
+      <View style={{ gap: 10, marginTop: 14 }}>
+        {CATEGORIES.map((c) => {
+          const on = counts[c.key] > 0
+          return (
+            <View key={c.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: on ? c.color + '14' : 'transparent', borderWidth: 1, borderColor: on ? c.color + '55' : C.lineMid }}>
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: c.color }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: F.semibold, fontSize: 13.5, color: C.ink }}>{c.label}</Text>
+                <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint }} numberOfLines={1}>{c.blurb}</Text>
+              </View>
+              <Pressable onPress={() => dec(c.key)} disabled={counts[c.key] === 0} hitSlop={6} style={stepBtn(counts[c.key] === 0)}><Text style={stepTxt}>−</Text></Pressable>
+              <Text style={{ width: 20, textAlign: 'center', fontFamily: F.bold, fontSize: 15, color: on ? c.color : C.faint }}>{counts[c.key]}</Text>
+              <Pressable onPress={() => inc(c.key)} disabled={total >= 5 || counts[c.key] >= 3} hitSlop={6} style={stepBtn(total >= 5 || counts[c.key] >= 3)}><Text style={stepTxt}>+</Text></Pressable>
+            </View>
+          )
+        })}
+      </View>
+      <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: total > 0 ? C.amber : C.faint, marginTop: 12, textAlign: 'center' }}>{total} of 5 goals selected</Text>
+      <SubmitBar label={total === 0 ? 'Pick at least one' : 'Continue'} disabled={total === 0} onPress={() => onSubmit(counts)} />
     </View>
   )
 }

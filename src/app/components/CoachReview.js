@@ -5,7 +5,7 @@ import { Check, X } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import { COACH_MESSAGES, recomputeGoal } from '../aiEngine'
-import { CATEGORY_COLORS, CATEGORY_ICONS } from '../mockData'
+import { CATEGORY_COLORS, normalizeCategory } from '../mockData'
 
 // The Coach's long-term goal review, surfaced every 25 days. For each goal it
 // asks about the NEXT unreached milestone only (sequential lock). Whatever the
@@ -62,13 +62,12 @@ export default function CoachReview({ profile, onComplete }) {
         </Text>
 
         {reviewable.map(({ goal, milestone }) => {
-          const color = CATEGORY_COLORS[goal.category] || C.amber
-          const icon = CATEGORY_ICONS[goal.category] || '✦'
+          const color = CATEGORY_COLORS[normalizeCategory(goal.category)] || C.amber
           const choice = decisions[goal.id]
           return (
             <View key={goal.id} style={{ borderRadius: 16, borderWidth: 1, borderColor: C.line, backgroundColor: 'rgba(13,13,27,0.8)', padding: 16, marginBottom: 14 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <Text style={{ fontSize: 15 }}>{icon}</Text>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
                 <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.dim, flex: 1 }} numberOfLines={1}>{goal.title}</Text>
               </View>
               {milestone.horizon && (

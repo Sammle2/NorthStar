@@ -14,7 +14,7 @@ import { ArrowLeft, History, Send, Settings, Trash2, X } from 'lucide-react-nati
 import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import { MessageBubble, PlanCard, TypingDots } from '../components/ChatBits'
-import { COACH_MESSAGES, coachReply, actionableTitle, normalizeAiGoal, normalizePlan } from '../aiEngine'
+import { COACH_MESSAGES, coachReply, actionableTitle, buildGoal, canAddGoal, normalizeAiGoal, normalizePlan } from '../aiEngine'
 import { coachRespond, applyGoalAction, applyPlanAction, distillCoachMemory, generateRoadmap, generatePlan } from '../../services/aiService'
 import { nowTime } from '../store'
 
@@ -194,6 +194,14 @@ export default function CoachChat({ profile, onUpdate, onOpenPlans }) {
       console.warn('[Coach] AI reply failed, using local fallback:', e?.message)
     }
     if (!reply) reply = coachReply(profile.coachTone, userText)
+
+    // Goal caps (≤5 active total, ≤3 per category): if a goal-add would exceed
+    // them, tell the user the truth instead of letting Nova falsely confirm it —
+    // and drop the action so no silent no-op write or wasted upgrade fires.
+    if (action?.type === 'add' && action.title) {
+      const check = canAddGoal(profileRef.current.goals, buildGoal(String(action.title)).category)
+      if (!check.ok) { reply = check.reason; action = null }
+    }
 
     // Keep the typing indicator up THROUGH plan generation when one was requested,
     // so the input stays locked and no interim message can race the snapshot below.

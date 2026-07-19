@@ -1,5 +1,6 @@
 // The Coach's brain — goal processing, milestone generation, dream-story writing,
 // and the Coach's voice across three tones. No external LLM; warm heuristics.
+import { normalizeCategory, LEGACY_CATEGORY_MAP } from './mockData'
 
 // Capitalize a person's name for display (every word's first letter).
 export function capName(name) {
@@ -295,23 +296,21 @@ export function correctTypos(text) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme detection
 // ─────────────────────────────────────────────────────────────────────────────
+// Detect which of the five life categories a goal's text is about.
 const detectThemes = (text) => {
   const lower = correctTypos(text || '').toLowerCase()
   return {
-    career: /business|startup|company|entrepreneur|founder|product|launch|revenue|clients|customers|agency|brand|career|job|promotion|role/.test(lower),
-    health: /health|fit|gym|body|weight|lose|run|marathon|workout|strong|energy|sleep|nutrition|muscle/.test(lower),
-    wealth: /money|rich|wealth|financial|invest|passive|income|freedom|retire|savings|crypto|stocks|debt/.test(lower),
-    creative: /write|book|novel|art|music|film|creative|create|design|paint|podcast|youtube|content|channel/.test(lower),
-    travel: /travel|world|countries|adventure|abroad|nomad|explore|trip|visit/.test(lower),
-    relationships: /family|kids|children|parents|relationship|partner|marry|love|friends|community/.test(lower),
-    mindset: /peace|happy|purpose|meaning|grow|learn|wisdom|mind|soul|spiritual|confidence|discipline|focus/.test(lower),
-    lifestyle: /freedom|lifestyle|remote|time|balance|own terms|flexible/.test(lower),
+    body: /health|fit|gym|body|weight|lose|run|marathon|workout|strong|energy|sleep|nutrition|muscle|diet|exercise|cardio|steps/.test(lower),
+    work: /career|job|business|startup|company|entrepreneur|founder|product|launch|revenue|client|customer|promotion|role|money|rich|wealth|financ|invest|passive|income|salary|raise|save|savings|debt|retire|budget/.test(lower),
+    relationships: /family|kid|child|parent|relationship|partner|marry|marriage|love|friend|community|social|date|dating|spouse|wife|husband/.test(lower),
+    spirit: /spirit|faith|god|pray|prayer|religio|meditat|mindful|purpose|meaning|peace|calm|gratitude|soul|values|presence|travel|adventure|explore/.test(lower),
+    mind: /focus|disciplin|learn|study|skill|read|creativ|create|writ|book|art|music|design|paint|content|mindset|confidence|emotion|mood|habit|productiv|knowledge/.test(lower),
   }
 }
 
 const primaryThemeOf = (text) => {
   const t = detectThemes(text)
-  const order = ['career', 'wealth', 'health', 'creative', 'travel', 'relationships', 'lifestyle', 'mindset']
+  const order = ['work', 'body', 'relationships', 'spirit', 'mind']
   return order.find((k) => t[k]) || null
 }
 
@@ -413,45 +412,30 @@ function mkActions(list) {
 // milestone carries "stepping stones" — the day-to-day actions that get you
 // there. Titles imply concrete targets; the user can edit them all in Redo.
 const THEME_ROADMAP = {
-  career: {
-    m3: { title: 'Define your offer and land your first win', steps: ['Get crystal clear on what you offer', 'Identify exactly who it’s for', 'Land your first small win'] },
-    m6: { title: 'Build consistent, referable traction', steps: ['Create a repeatable system', 'Reach steady weekly output', 'Get referred by someone'] },
-    m12: { title: 'Step into the role or income you want', steps: ['Raise your rates or scope', 'Become known in your space', 'Hit your target number'] },
+  work: {
+    m3: { title: 'Define your focus and land a first win', steps: ['Get clear on your target outcome', 'Identify the highest-leverage move', 'Land one concrete first win'] },
+    m6: { title: 'Build consistent, referable traction', steps: ['Create a repeatable system', 'Reach steady weekly output', 'Grow income or recognition once'] },
+    m12: { title: 'Hit your target role, income, or number', steps: ['Raise your rates, scope, or savings rate', 'Become known and trusted in your space', 'Hit your target number'] },
   },
-  wealth: {
-    m3: { title: 'Publish your idea / first income source', steps: ['Map your numbers and target', 'Come up with the idea', 'Launch or publish it'] },
-    m6: { title: 'Reach your first real traction', steps: ['Get your first paying users', 'Reach $500 outside your job', 'Reinvest your first profits'] },
-    m12: { title: 'Hit $5k/month (or your number)', steps: ['Scale what’s working', 'Automate saving & investing', 'Reach your monthly target'] },
-  },
-  health: {
+  body: {
     m3: { title: 'Lock in the routine', steps: ['Move 4× every week', 'Fix your sleep schedule', 'Clean up one eating habit'] },
     m6: { title: 'See real, visible change', steps: ['Hit a strength/endurance mark', 'Reach a visible body change', 'Sustain it for 90 days'] },
     m12: { title: 'Live in the body you want', steps: ['Make it identity, not effort', 'Hit your goal composition', 'Inspire someone else'] },
   },
-  creative: {
-    m3: { title: 'Find your voice and publish', steps: ['Define your niche & format', 'Publish your first 10 pieces', 'Get your first real feedback'] },
-    m6: { title: 'Build a small, real audience', steps: ['Publish consistently for 90 days', 'Reach your first 100 fans', 'Make one signature piece'] },
-    m12: { title: 'Make your creative work pay', steps: ['Grow to 1,000+ followers', 'Earn your first income from it', 'Land a standout collaboration'] },
+  mind: {
+    m3: { title: 'Build the daily base', steps: ['Start a daily focus habit', 'Learn one skill deliberately', 'Cut your biggest distraction'] },
+    m6: { title: 'Sharpen and create', steps: ['Hold deep focus under pressure', 'Ship something you made', 'Learn consistently for 90 days'] },
+    m12: { title: 'Think and create at your best', steps: ['Make focus your default', 'Reach real skill or mastery', 'Teach or share what you learned'] },
   },
-  travel: {
-    m3: { title: 'Plan and book the first trip', steps: ['Pick your destinations', 'Set the budget & start saving', 'Book the first trip'] },
-    m6: { title: 'Take the leap', steps: ['Go on the first real trip', 'Stretch further / go solo', 'Document and share it'] },
-    m12: { title: 'Make travel a way of life', steps: ['Plan a longer stay abroad', 'Build location-flexible income', 'Make exploring routine'] },
+  spirit: {
+    m3: { title: 'Build a grounding practice', steps: ['Start a daily grounding habit', 'Reflect or journal each day', 'Cut your biggest source of noise'] },
+    m6: { title: 'Deepen your inner life', steps: ['Sit calmly with discomfort', 'Practice gratitude for 90 days', 'Clarify what matters most'] },
+    m12: { title: 'Live with steady peace & purpose', steps: ['Make calm your default', 'Live aligned with your values', 'Feel clear on your why'] },
   },
   relationships: {
     m3: { title: 'Show up consistently', steps: ['Name who matters most', 'Start a weekly ritual', 'Reach out with no agenda'] },
     m6: { title: 'Deepen the key bonds', steps: ['Have the honest conversation', 'Repair or grow one bond', 'Be the one others rely on'] },
     m12: { title: 'Build the circle you want', steps: ['Gather people regularly', 'Let go of a draining tie', 'Feel genuinely supported'] },
-  },
-  mindset: {
-    m3: { title: 'Build the daily base', steps: ['Start a daily grounding habit', 'Read one growth book', 'Cut your biggest source of noise'] },
-    m6: { title: 'Strengthen your focus', steps: ['Hold focus under pressure', 'Journal for 90 days', 'Sit calmly with discomfort'] },
-    m12: { title: 'Live with steady peace', steps: ['Make calm your default', 'Mentor someone through it', 'Feel clear on your why'] },
-  },
-  lifestyle: {
-    m3: { title: 'Audit and cut', steps: ['Track where your time goes', 'Cut your biggest time drain', 'Protect one deep-work block'] },
-    m6: { title: 'Build the systems', steps: ['Automate or delegate one thing', 'Set boundaries that stick', 'Design your ideal week'] },
-    m12: { title: 'Live on your own terms', steps: ['Own your schedule', 'Work from anywhere', 'Repeat a week you love'] },
   },
 }
 
@@ -557,53 +541,35 @@ export function recomputeGoal(goal) {
 }
 
 const DOMAIN_TEMPLATES = {
-  career: {
-    title: 'Build a Career You’re Proud Of',
-    category: 'career',
-    summit: 'Step into the role or income you set as the target',
-    dailyActions: ['Two focused hours on the real work', 'Sharpen one skill that matters', 'Make one meaningful connection'],
+  mind: {
+    title: 'Sharpen My Mind & Focus',
+    category: 'mind',
+    summit: 'Think clearly, learn fast, and create at your best',
+    dailyActions: ['Learn or practice one skill 30 min', 'One deep-focus block, no phone', 'Create or write something small'],
   },
-  wealth: {
-    title: 'Reach Financial Freedom',
-    category: 'wealth',
-    summit: 'Reach your financial freedom number',
-    dailyActions: ['Track every dollar today', 'Grow your earning power 1%', 'Move one money task forward'],
-  },
-  health: {
+  body: {
     title: 'Transform My Health & Energy',
-    category: 'health',
+    category: 'body',
     summit: 'Reach the body and energy you set out for',
     dailyActions: ['Move your body 30 minutes', 'Eat to fuel, not to numb', 'In bed by your target time'],
+  },
+  spirit: {
+    title: 'Find Peace & Purpose',
+    category: 'spirit',
+    summit: 'Live with grounded peace and meaning',
+    dailyActions: ['10 minutes of stillness', 'Journal or pray with intention', 'Name one thing you’re grateful for'],
+  },
+  work: {
+    title: 'Build Work & Money You’re Proud Of',
+    category: 'work',
+    summit: 'Reach the role, income, or freedom you set as the target',
+    dailyActions: ['Two focused hours on the real work', 'Move one money task forward', 'Sharpen one skill that pays'],
   },
   relationships: {
     title: 'Build Deeper Relationships',
     category: 'relationships',
     summit: 'Build the circle you’ve always wanted',
     dailyActions: ['Reach out to someone you love', 'Be fully present once today', 'Do one quiet kind thing'],
-  },
-  creative: {
-    title: 'Build My Creative Platform',
-    category: 'creative',
-    summit: 'Make your creative work self-sustaining',
-    dailyActions: ['Create for 60 minutes', 'Share something, even if small', 'Study a creator you admire'],
-  },
-  travel: {
-    title: 'Live a Life of Adventure',
-    category: 'travel',
-    summit: 'Make travel a recurring part of life',
-    dailyActions: ['Plan or research one adventure', 'Set money aside for the trip', 'Learn about a new place'],
-  },
-  mindset: {
-    title: 'Master My Mindset & Focus',
-    category: 'mindset',
-    summit: 'Live with steady, grounded peace',
-    dailyActions: ['10 minutes of stillness', 'Journal before bed', 'Read 20 pages that grow you'],
-  },
-  lifestyle: {
-    title: 'Design My Ideal Lifestyle',
-    category: 'lifestyle',
-    summit: 'Live fully on your own terms',
-    dailyActions: ['Protect your deep-work hours', 'Eliminate one time-waster', 'Design tomorrow tonight'],
   },
 }
 
@@ -621,7 +587,7 @@ export function isGenericGoalTitle(title) {
 // so the roadmap never shows a generic goal, even for the moment before upgrade.
 export function buildSupportingGoal(title, category, id = `goal-${Math.random().toString(36).slice(2, 8)}`) {
   const clean = String(title || '').trim()
-  const cat = VALID_CATEGORIES.has(category) ? category : primaryThemeOf(clean) || 'mindset'
+  const cat = resolveCategory(category, clean)
   const tmpl = DOMAIN_TEMPLATES[cat]
   return {
     id,
@@ -643,16 +609,18 @@ function domainMilestones(domain) {
 // Build a goal from raw user text — actionable title + 3 timed milestones, each
 // with stepping stones, flavored by its theme. Reused for the onboarding primary
 // goal AND for new goals spun up from Sprints.
-export function buildGoal(rawGoal, extra = '', id = `goal-${Math.random().toString(36).slice(2, 8)}`) {
+export function buildGoal(rawGoal, extra = '', id = `goal-${Math.random().toString(36).slice(2, 8)}`, category = null) {
   const title = actionableTitle(rawGoal)
-  const theme = primaryThemeOf(rawGoal + ' ' + (extra || ''))
-  const tmpl = theme && DOMAIN_TEMPLATES[theme]
-  const milestones = buildMilestones(theme, title, true)
+  // Use an explicit category when the caller knows it (category-scoped creation);
+  // otherwise infer the theme from the goal text. Always one of the five keys.
+  const cat = category ? resolveCategory(category, rawGoal + ' ' + (extra || '')) : (primaryThemeOf(rawGoal + ' ' + (extra || '')) || 'mind')
+  const tmpl = DOMAIN_TEMPLATES[cat]
+  const milestones = buildMilestones(cat, title, true)
   const actions = tmpl ? tmpl.dailyActions : ['Take one real step toward your goal', 'Remove one obstacle in your way', 'Reflect on what moved the needle']
   // source:'template' marks this as a local scaffold — the app upgrades untouched
   // template goals to goal-specific AI roadmaps in the background (App.js).
   // timeframeMonths: goals default to a 12-month arc; readers treat missing as 12.
-  return { id, title, category: tmpl ? tmpl.category : 'mindset', progress: 0, timeframeMonths: 12, source: 'template', milestones, dailyActions: mkActions(actions) }
+  return { id, title, category: cat, progress: 0, timeframeMonths: 12, source: 'template', milestones, dailyActions: mkActions(actions) }
 }
 
 // Regenerate the milestones (+ stepping stones) for a goal title — the "redo" /
@@ -664,6 +632,27 @@ export function regenerateMilestones(goalTitle, extra = '') {
 
 const VALID_CATEGORIES = new Set(Object.keys(DOMAIN_TEMPLATES))
 
+// Resolve any category value to one of the five keys: a valid key passes through,
+// a legacy key (career/wealth/…) is folded, and anything else is inferred from
+// the goal text, defaulting to 'mind'.
+function resolveCategory(category, text = '') {
+  const c = String(category || '').toLowerCase()
+  if (VALID_CATEGORIES.has(c)) return c
+  if (LEGACY_CATEGORY_MAP[c]) return LEGACY_CATEGORY_MAP[c]
+  return primaryThemeOf(text) || 'mind'
+}
+
+// Goal caps: at most 5 active (incomplete) goals total, and at most 3 in any one
+// category. Returns { ok } or { ok:false, reason } with a user-facing message.
+export function canAddGoal(goals, category) {
+  const active = (goals || []).filter((g) => (g.progress || 0) < 100)
+  if (active.length >= 5) return { ok: false, reason: 'You already have 5 active goals — finish one to start another.' }
+  const cat = normalizeCategory(category)
+  const inCat = active.filter((g) => normalizeCategory(g.category) === cat).length
+  if (inCat >= 3) return { ok: false, reason: `You already have 3 goals in ${cat.charAt(0).toUpperCase() + cat.slice(1)} — the max for one category.` }
+  return { ok: true }
+}
+
 // Turn a Claude-generated roadmap (loose JSON) into a goal in the app's exact
 // shape. Tolerant of missing/odd fields — anything unusable falls back to the
 // local template via buildGoal, so onboarding never breaks on a bad response.
@@ -672,9 +661,7 @@ export function normalizeAiGoal(ai, rawGoal, extra = '', id = 'goal-primary') {
     return buildGoal(rawGoal, extra, id)
   }
   const title = (ai.title && String(ai.title).trim()) || actionableTitle(rawGoal)
-  const category = VALID_CATEGORIES.has(ai.category)
-    ? ai.category
-    : primaryThemeOf(`${rawGoal} ${extra}`) || 'mindset'
+  const category = resolveCategory(ai.category, `${rawGoal} ${extra}`)
 
   // The AI picks the shortest realistic total timeframe for this goal —
   // clamp to a sane 1–24 month window, default anything unusable to 12.
@@ -822,23 +809,19 @@ export function generateNonNegotiables(profile) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Personalized dream-life story — FIRST PERSON (a window into their own future)
 // ─────────────────────────────────────────────────────────────────────────────
+// One chapter per life category — the "five years from now" vision the local
+// dream-story fallback stitches together (keyed to the five framework categories).
 const DOMAIN_STORY = {
-  career:
-    "The work is unmistakably mine now. Not a job that drains me — a craft I've sharpened until people seek it out. I walk into rooms carrying the quiet confidence of someone who built something real, and my calendar is full of work that actually matters.",
-  wealth:
-    "Money has stopped being a source of fear and become a source of freedom. I don't flinch at the unexpected anymore. Income arrives from things I built, even on the quiet days, and every decision I make comes from abundance instead of scarcity.",
-  health:
+  mind:
+    "My mind is sharp and my focus is mine again. I learn things that light me up and actually finish what I start. I create instead of just consuming, and the noise that used to crowd my head is filtered out — what's left is signal.",
+  body:
     "My body is proof of discipline turned into habit. The morning movement isn't punishment — it's ritual. The energy that once felt impossible is just my baseline now. I notice it in the mirror, in the stairs I take two at a time, in the clarity a cared-for body gives my mind.",
+  spirit:
+    "There's a stillness to my life that once felt out of reach. Not emptiness — fullness. I know exactly who I am and why I rise each morning, I'm grateful for what I have, and I meet the hard days with peace instead of panic.",
+  work:
+    "The work is unmistakably mine now — not a job that drains me, but a craft I've sharpened until people seek it out. And money has stopped being a source of fear and become a source of freedom: income arrives from what I built, and every decision comes from abundance instead of scarcity.",
   relationships:
     'The people who matter most are genuinely present in my life. Not rushed, not half-there — present. Dinners run long. Laughter comes easy. The bonds that hold me up were built on purpose, and they run deep.',
-  creative:
-    "My creative work exists in the world and has found the people it was meant for. Strangers reach out to tell me it shifted something in them. I create now not for approval, but because the voice inside me finally has a clear, strong channel.",
-  travel:
-    "The world has become familiar to me in the best way. Cafés in cities other people only see on screens. A worn passport. A wider sense of what's possible. Home is now both a place and a feeling I carry everywhere.",
-  mindset:
-    "There's a stillness to my life that once felt out of reach. Not emptiness — fullness. The peace of knowing exactly who I am and why I rise each morning. The noise is filtered out. What's left is signal.",
-  lifestyle:
-    "I own my time now. My days are shaped on my terms — deep work when it counts, true rest when it's earned, no permission needed. Freedom isn't a someday word anymore; it's just Tuesday.",
 }
 
 export function generateDreamStory({ age, answers, goalTitle, extra }) {
@@ -856,8 +839,8 @@ export function generateDreamStory({ age, answers, goalTitle, extra }) {
     .filter(([, v]) => v >= 2)
     .sort((a, b) => b[1] - a[1])
     .map(([k]) => k)
-  const top = ranked.length ? ranked.slice(0, 3) : ['mindset']
-  const chapters = top.map((d) => DOMAIN_STORY[d] || DOMAIN_STORY.mindset)
+  const top = ranked.length ? ranked.slice(0, 3) : ['mind']
+  const chapters = top.map((d) => DOMAIN_STORY[d] || DOMAIN_STORY.mind)
 
   const extraLine =
     extra && extra.trim()

@@ -66,6 +66,11 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
   document.head.appendChild(s)
 }
 
+// A profile counts as onboarded only once it has finished the CURRENT framework
+// intake (frameworkVersion 2 — the 5-category Mind/Body/Spirit/Work/Relationships
+// flow). Anyone from before it is routed through the new intake once (fresh start).
+const isOnboarded = (p) => !!(p && p.frameworkVersion === 2 && (p.dreamDescription || (p.goals || []).length))
+
 // Faithful React Native port of the "Dream Life Roadmap" Figma build.
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -240,7 +245,7 @@ export default function App() {
         } else if (!s.profile.userId && !s.profile.email) {
           // Profile exists but not linked to auth — need to sign in
           setScreen('auth')
-        } else if (s.profile.dreamDescription || (s.profile.goals || []).length) {
+        } else if (isOnboarded(s.profile)) {
           // Returning, onboarded user: straight to the app. The dream reveal is a
           // one-time onboarding step, never replayed — so we never strand them on
           // that nav-less screen again.
@@ -365,7 +370,7 @@ export default function App() {
     const cloudProfile = cloud?.state?.profile
 
     let nextState
-    if (cloudProfile && (cloudProfile.dreamDescription || (cloudProfile.goals || []).length)) {
+    if (cloudProfile && isOnboarded(cloudProfile)) {
       // Returning user with real cloud data — adopt it (cloud wins on sign-in).
       nextState = {
         ...cloud.state,
@@ -382,7 +387,7 @@ export default function App() {
     // moment, never replayed on login. We also mark it seen so cold-boot routing
     // agrees and can never strand them on that nav-less screen again.
     const prof = nextState.profile
-    const onboarded = !!(prof.dreamDescription || (prof.goals || []).length)
+    const onboarded = isOnboarded(prof)
     if (onboarded) {
       persist({ ...nextState, dreamRevealSeen: true })
       setTab('dashboard')
@@ -437,7 +442,7 @@ export default function App() {
   const handleBegin = async () => {
     const existing = appStateRef.current?.profile
     if (existing?.userId) {
-      if (existing.dreamDescription || (existing.goals || []).length) {
+      if (isOnboarded(existing)) {
         // Already onboarded → straight into the app, never replay the dream reveal.
         persist({ ...appStateRef.current, dreamRevealSeen: true })
         setTab('dashboard')
@@ -690,7 +695,7 @@ export default function App() {
           onDone={() => {
             // New password set. If we already have a full profile, go to the app;
             // otherwise send them to sign in.
-            if (p && p.userId && p.dreamDescription) setScreen('app')
+            if (p && p.userId && isOnboarded(p)) setScreen('app')
             else { setAuthSubScreen('signin'); setScreen('auth') }
           }}
         />
