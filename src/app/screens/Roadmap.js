@@ -6,7 +6,7 @@ import { C, F } from '../tokens'
 import { CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS, normalizeCategory } from '../mockData'
 import MomentumCard from '../../momentum/MomentumCard'
 import GoalMomentumBar from '../../momentum/GoalMomentumBar'
-import StoneTrack from '../../momentum/StoneTrack'
+import StoneRoad from '../../momentum/StoneRoad'
 import { hasR2 } from '../../momentum/model'
 import { buildGoal, canAddGoal, recomputeGoal, shortStepLabel } from '../aiEngine'
 import { generateGoalsForFocus } from '../../services/aiService'
@@ -365,12 +365,11 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
 
         {goal ? (
         hasR2(goal) ? (
-          // Momentum goals: show the stone breakdown (outcome checkpoints) + momentum
-          // + tasks instead of the 3/6/12-month milestone road. Legacy goals without
-          // stones fall back to the road below.
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 130 }}>
-            <StoneTrack goal={goal} onUpdate={onUpdate} />
-          </ScrollView>
+          // Momentum goals: the celestial road plots this goal's STONES (outcome
+          // checkpoints) — no 3/6/12-month milestones. The stones are display
+          // only; progress is logged in the Progress entry and the road advances
+          // itself. Legacy goals without stones keep the original road below.
+          <StoneRoad goal={goal} onUpdate={onUpdate} />
         ) : (
         <Animated.ScrollView
           // Remount per path: a goal→goal hop then starts at offset 0 (matching
