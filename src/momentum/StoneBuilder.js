@@ -6,7 +6,7 @@
 // self-contained full-screen overlay (matches the app's Settings/Plans pattern),
 // so it never touches Max's roadmap layout.
 import React, { useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { ArrowDown, ArrowUp, Check, ChevronLeft, Plus, Sparkles, Trash2, X } from 'lucide-react-native'
 import { C, F } from '../app/tokens'
 import { GAP_SIZES } from './model'
@@ -102,7 +102,7 @@ export default function StoneBuilder({ goal, onUpdate, onClose, situation = '' }
   }
 
   return (
-    <Overlay>
+    <Overlay onRequestClose={() => onClose && onClose(false)}>
       <Header
         title={goal?.title || 'New Dream'}
         onBack={step === 'gap' ? null : () => setStep(step === 'tasks' ? 'stones' : 'gap')}
@@ -267,9 +267,14 @@ export default function StoneBuilder({ goal, onUpdate, onClose, situation = '' }
 }
 
 // ── small shared bits ────────────────────────────────────────────────────────
-function Overlay({ children }) {
+// A Modal, not an absolutely-positioned View — this flow is mounted deep inside
+// StoneTrack (itself inside a ScrollView), where RN's parent-relative absolute
+// positioning would size the "overlay" to its container instead of the screen.
+function Overlay({ children, onRequestClose }) {
   return (
-    <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: C.bg, zIndex: 200 }}>{children}</View>
+    <Modal visible transparent={false} animationType="slide" onRequestClose={onRequestClose}>
+      <View style={{ flex: 1, backgroundColor: C.bg }}>{children}</View>
+    </Modal>
   )
 }
 

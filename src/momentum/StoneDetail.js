@@ -4,14 +4,19 @@
 // link into that stone's Roadmap view" the spec asks for, without depending on
 // Max's celestial-map selection state.
 import React from 'react'
-import { Pressable, ScrollView, Text, View } from 'react-native'
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native'
 import { X } from 'lucide-react-native'
 import { C, F } from '../app/tokens'
 import StoneTrack from './StoneTrack'
 
 export default function StoneDetail({ goal, onUpdate, onClose, situation = '' }) {
+  // A Modal, NOT an absolutely-positioned View: this sheet is mounted inside the
+  // small MomentumCard wrapper, and in React Native `position:'absolute'` is
+  // relative to the PARENT — so inset-0 rendered a thin strip at the card instead
+  // of a full screen, which made the "Stone X of Y" button look dead.
   return (
-    <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: C.bg, zIndex: 150 }}>
+    <Modal visible transparent={false} animationType="slide" onRequestClose={onClose}>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
       <View style={{ paddingTop: 52, paddingHorizontal: 18, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: C.line }}>
         <View style={{ flex: 1 }}>
           <Text style={{ fontFamily: F.display, fontSize: 10.5, color: C.faint, letterSpacing: 2.5 }}>MOMENTUM ROADMAP</Text>
@@ -23,5 +28,6 @@ export default function StoneDetail({ goal, onUpdate, onClose, situation = '' })
         <StoneTrack goal={goal} onUpdate={onUpdate} situation={situation} />
       </ScrollView>
     </View>
+    </Modal>
   )
 }
