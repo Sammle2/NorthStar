@@ -10,6 +10,7 @@ import { C, F } from '../app/tokens'
 import GlowProgress from '../app/components/GlowProgress'
 import { getR2, hasR2, orderedStones, currentStone } from './model'
 import { stoneMomentum, pct } from './engine'
+import { momentumColor } from './GoalMomentumBar'
 import StoneDetail from './StoneDetail'
 
 export default function MomentumCard({ goal, onUpdate, situation = '', accent = C.amber }) {
@@ -21,7 +22,7 @@ export default function MomentumCard({ goal, onUpdate, situation = '', accent = 
   const curIdx = cur ? stones.findIndex((s) => s.id === cur.id) : -1
   const m = has && cur ? stoneMomentum(r2, cur) : null
   const mPct = pct(m)
-  const color = m == null ? C.faint : m >= 0.75 ? C.green : m >= 0.4 ? C.amber : C.red
+  const color = momentumColor(m == null ? 0 : m)
 
   return (
     <View style={{ paddingHorizontal: 24, paddingTop: 6, paddingBottom: 2 }}>

@@ -19,6 +19,7 @@ import { toggleTaskDone, logOutcome, markStoneComplete, addTask } from './store'
 import { generateStoneTasks } from './generate'
 import { CATEGORIES, normalizeCategory } from '../app/mockData'
 import StoneBuilder from './StoneBuilder'
+import { momentumColor } from './GoalMomentumBar'
 
 export default function StoneTrack({ goal, onUpdate, situation = '' }) {
   const [showBuilder, setShowBuilder] = useState(false)
@@ -220,12 +221,8 @@ function targetLine(stone) {
   return `${stone.targetMetric || 'target'} ${arrow} ${stone.targetValue}${stone.targetUnit ? ' ' + stone.targetUnit : ''}`
 }
 
-function momentumColor(score) {
-  if (score == null) return C.faint
-  if (score >= 0.75) return C.green
-  if (score >= 0.4) return C.amber
-  return C.red
-}
+// momentumColor (violet→gold) is imported from GoalMomentumBar so every momentum
+// surface shares the roadmap's colour scheme.
 
 function StatusPill({ status }) {
   const map = {

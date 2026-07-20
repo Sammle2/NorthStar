@@ -15,6 +15,7 @@ import GlowProgress from '../app/components/GlowProgress'
 import { CATEGORY_COLORS, normalizeCategory } from '../app/mockData'
 import { activeDreams } from './store'
 import { getCircleDreams, getMyCircleShares, shareDreamToCircle, unshareDreamFromCircle } from '../services/circleService'
+import { momentumColor } from './GoalMomentumBar'
 
 const LEVELS = [
   { id: 'off', label: 'Off' },
@@ -67,7 +68,7 @@ export default function CircleDreams({ circle, profile }) {
                 <Avatar url={d.avatar_url} name={d.name} username={d.username} size={30} />
                 <Text style={{ flex: 1, fontFamily: F.medium, fontSize: 12, color: C.dim }} numberOfLines={1}>{isMe ? 'You' : (d.name || 'Member')}</Text>
                 {showMomentum && d.momentum_pct != null && (
-                  <Text style={{ fontFamily: F.bold, fontSize: 13.5, color: momentumColor(d.momentum_pct) }}>{d.momentum_pct}%</Text>
+                  <Text style={{ fontFamily: F.bold, fontSize: 13.5, color: momentumColor((d.momentum_pct || 0) / 100)}}>{d.momentum_pct}%</Text>
                 )}
               </View>
               <Text style={{ fontFamily: F.semibold, fontSize: 14.5, color: C.ink, marginTop: 8 }} numberOfLines={1}>{d.dream_title || 'A Dream'}</Text>
@@ -77,7 +78,7 @@ export default function CircleDreams({ circle, profile }) {
                 </Text>
               ) : null}
               {showMomentum && d.momentum_pct != null && (
-                <View style={{ marginTop: 10 }}><GlowProgress value={d.momentum_pct} color={momentumColor(d.momentum_pct)} height={5} /></View>
+                <View style={{ marginTop: 10 }}><GlowProgress value={d.momentum_pct} color={momentumColor((d.momentum_pct || 0) / 100)} height={5} /></View>
               )}
               {d.share_level === 'full_tasks' && Array.isArray(d.tasks) && d.tasks.length > 0 && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
@@ -126,9 +127,4 @@ export default function CircleDreams({ circle, profile }) {
   )
 }
 
-function momentumColor(p) {
-  if (p == null) return C.faint
-  if (p >= 75) return C.green
-  if (p >= 40) return C.amber
-  return C.red
-}
+// momentumColor (violet→gold) imported from GoalMomentumBar.

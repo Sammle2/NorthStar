@@ -50,6 +50,8 @@ import { establishSessionFromUrl, onAuthStateChange, resendConfirmation, signOut
 import { isUsernameAvailable } from './src/services/socialService'
 import { COACH_MESSAGES, isGenericGoalTitle, normalizeAiGoal } from './src/app/aiEngine'
 import { generateRoadmap } from './src/services/aiService'
+import { decomposeIntoStones, generateStoneTasks } from './src/momentum/generate'
+import { adoptMechanism } from './src/momentum/store'
 import { requestNotificationPermission, scheduleDailyCheckIn, cancelDailyCheckIn, onNotification } from './src/services/notificationService'
 import { Bell } from 'lucide-react-native'
 
@@ -310,10 +312,40 @@ export default function App() {
             // GENERIC template title (legacy accounts), adopt the AI's specific
             // one so no vague goal survives.
             const title = isGenericGoalTitle(target.title) ? upgraded.title : target.title
-            return { ...prof, goals: prof.goals.map((x) => (x.id === g.id ? { ...upgraded, title } : x)) }
+            return { ...prof, goals: prof.goals.map((x) => (x.id === g.id ? { ...upgraded, title, r2: target.r2 } : x)) }
           })
         } catch (e) {
           console.warn('[Goals] AI upgrade failed for', g.title, '- keeping template:', e?.message)
+        }
+      }
+    })()
+  }, [screen, hasSession])
+
+  // Give each goal its momentum breakdown automatically: outcome STONES (the goal
+  // split into measurable checkpoints — down 2 lbs, run 1 mile, unit 1 of 4) plus
+  // the first stone's daily TASKS. This is what the roadmap shows instead of a
+  // fixed 3/6/12-month milestone timeline. Best-effort, once per session; a
+  // failure just leaves the goal for on-demand setup, so it never blocks the app.
+  const momentumAdoptedRef = useRef(false)
+  useEffect(() => {
+    if (screen !== 'app' || !hasSession || momentumAdoptedRef.current) return
+    const needs = (appStateRef.current?.profile?.goals || []).filter((g) => !g.r2)
+    if (!needs.length) { momentumAdoptedRef.current = true; return }
+    momentumAdoptedRef.current = true
+    ;(async () => {
+      for (const g of needs) {
+        try {
+          const prof = appStateRef.current?.profile || {}
+          const context = prof.situation || prof.dreamDescription || ''
+          const stones = await decomposeIntoStones({ title: g.title, category: g.category, situation: context, currentState: context })
+          if (!stones.length) continue
+          const tasks = await generateStoneTasks({ dreamTitle: g.title, category: g.category, stone: stones[0] })
+          const built = stones.map((s, i) => ({ ...s, tasks: i === 0 ? tasks : [] }))
+          // Adopt only if the goal still exists and still has no mechanism.
+          const target = (appStateRef.current?.profile?.goals || []).find((x) => x.id === g.id)
+          if (target && !target.r2) adoptMechanism(updateProfile, g.id, { gap: 'stretch', levers: [], stones: built, currentState: context })
+        } catch (e) {
+          console.warn('[Momentum] auto-adopt failed for', g.title, '-', e?.message)
         }
       }
     })()

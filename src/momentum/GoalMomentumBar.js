@@ -1,41 +1,47 @@
 // ── Momentum roadmap: compact per-goal momentum readout ──────────────────────
-// A small bar + score + current-stone marker for ONE goal, shown under each goal
-// in Max's Roadmap category sub-view so "in each category you see your goals,
-// each with a momentum feature." Renders nothing for goals that haven't adopted
-// the momentum mechanism yet, so it never disturbs a plain goal's look.
+// A small bar + score + current-stone marker for ONE goal. Always visible: at 0%
+// the bar sits empty and fills to its true % as daily tasks get done. Coloured on
+// the SAME violet→gold scheme as Max's road (the lit path runs #a78bfa → #f59e0b),
+// so a low momentum reads violet and a strong one reads gold.
 import React from 'react'
 import { Text, View } from 'react-native'
 import { C, F } from '../app/tokens'
 import GlowProgress from '../app/components/GlowProgress'
-import { getR2, hasR2, orderedStones, currentStone } from './model'
+import { getR2, orderedStones, currentStone } from './model'
 import { stoneMomentum, pct } from './engine'
 
+// Interpolate violet (#a78bfa) → gold (#f59e0b) by momentum fraction (0..1),
+// matching the roadmap's lit-path gradient. null/0 → violet, 1 → gold.
 export function momentumColor(score) {
-  if (score == null) return C.faint
-  if (score >= 0.75) return C.green
-  if (score >= 0.4) return C.amber
-  return C.red
+  const t = score == null ? 0 : Math.max(0, Math.min(1, score))
+  const a = [167, 139, 250] // #a78bfa violet
+  const b = [245, 158, 11] //  #f59e0b gold
+  const c = a.map((x, i) => Math.round(x + (b[i] - x) * t))
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`
 }
 
 export default function GoalMomentumBar({ goal, width = '100%' }) {
-  if (!hasR2(goal)) return null
   const r2 = getR2(goal)
   const stones = orderedStones(r2)
   const cur = currentStone(r2)
   const curIdx = cur ? stones.findIndex((s) => s.id === cur.id) : -1
   const m = cur ? stoneMomentum(r2, cur) : null
-  const mPct = pct(m)
-  const color = momentumColor(m)
+  // Always a number so the bar is always present — 0% until tasks get done.
+  const mPct = pct(m) == null ? 0 : pct(m)
+  const color = momentumColor(m == null ? 0 : m)
+  const label = cur
+    ? `MOMENTUM · STONE ${curIdx + 1}/${stones.length}`
+    : stones.length
+      ? 'MOMENTUM · ALL STONES DONE'
+      : 'MOMENTUM'
 
   return (
     <View style={{ marginTop: 6, width }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-        <Text style={{ fontFamily: F.medium, fontSize: 9, color: C.faint, letterSpacing: 0.6 }}>
-          {cur ? `MOMENTUM · STONE ${curIdx + 1}/${stones.length}` : 'ALL STONES DONE'}
-        </Text>
-        <Text style={{ fontFamily: F.bold, fontSize: 10.5, color }}>{mPct == null ? '—' : `${mPct}%`}</Text>
+        <Text style={{ fontFamily: F.medium, fontSize: 9, color: C.faint, letterSpacing: 0.6 }}>{label}</Text>
+        <Text style={{ fontFamily: F.bold, fontSize: 10.5, color }}>{mPct}%</Text>
       </View>
-      <GlowProgress value={mPct || 0} color={color} height={4} />
+      <GlowProgress value={mPct} color={color} height={4} />
     </View>
   )
 }
