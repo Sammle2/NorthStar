@@ -142,11 +142,11 @@ function CurrentStoneBody({ stone, r2, goal, onUpdate }) {
         )}
       </View>
 
-      {/* Outcome — a SEPARATE readout, never merged with momentum */}
+      {/* Progress (the real-world metric) — a SEPARATE readout, never merged with momentum */}
       {op.hasTarget && (
         <View style={{ borderRadius: 12, padding: 12, backgroundColor: C.violetFill07, borderWidth: 1, borderColor: C.lineSoft }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: C.dim, letterSpacing: 1, textTransform: 'uppercase' }}>Outcome</Text>
+            <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: C.dim, letterSpacing: 1, textTransform: 'uppercase' }}>Progress</Text>
             <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.violet }}>{op.text}</Text>
           </View>
           {op.pct != null && <View style={{ marginTop: 8 }}><GlowProgress value={Math.round(op.pct * 100)} color={C.violet} height={6} /></View>}
