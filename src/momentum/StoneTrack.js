@@ -31,11 +31,11 @@ export default function StoneTrack({ goal, onUpdate, situation = '' }) {
           <TrendingUp size={26} color={C.violet} strokeWidth={2} />
           <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.ink, marginTop: 12, textAlign: 'center' }}>Give this Dream real momentum</Text>
           <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim, marginTop: 6, textAlign: 'center', lineHeight: 18 }}>
-            Break it into measurable stones and daily tasks. Progress by hitting real numbers — no deadlines.
+            Name the outcome, then break it into measurable checkpoints and daily tasks. Progress by hitting real numbers — no deadlines.
           </Text>
           <Pressable onPress={() => setShowBuilder(true)} style={{ marginTop: 16, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 12, backgroundColor: C.amber }}>
             <Sparkles size={15} color={C.amberInk} strokeWidth={2.4} />
-            <Text style={{ fontFamily: F.bold, fontSize: 13.5, color: C.amberInk }}>Lay the stones</Text>
+            <Text style={{ fontFamily: F.bold, fontSize: 13.5, color: C.amberInk }}>Build this Dream</Text>
           </Pressable>
         </View>
         {showBuilder && <StoneBuilder goal={goal} onUpdate={onUpdate} situation={situation} onClose={() => setShowBuilder(false)} />}
@@ -72,7 +72,7 @@ function StoneRow({ stone, index, isCurrent, r2, goal, onUpdate }) {
           {done ? <Check size={15} color={C.green} strokeWidth={2.6} /> : locked ? <Lock size={13} color={C.faint} /> : <Text style={{ fontFamily: F.bold, fontSize: 12, color: accent }}>{index + 1}</Text>}
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: F.semibold, fontSize: 14.5, color: done ? C.dim : C.ink }}>{stone.title || `Stone ${index + 1}`}</Text>
+          <Text style={{ fontFamily: F.semibold, fontSize: 14.5, color: done ? C.dim : C.ink }}>{stone.title || `Checkpoint ${index + 1}`}</Text>
           <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginTop: 2 }}>{targetLine(stone)}</Text>
         </View>
         <StatusPill status={stone.status} />
@@ -103,7 +103,7 @@ function CurrentStoneBody({ stone, r2, goal, onUpdate }) {
     if (isNaN(v)) return
     const res = logOutcome(onUpdate, goal.id, stone.id, v)
     setOutVal('')
-    if (res && res.completed) setCelebrate(res.dreamDone ? 'Dream complete 🎉' : 'Stone complete — next one unlocked!')
+    if (res && res.completed) setCelebrate(res.dreamDone ? 'Dream complete 🎉' : 'Checkpoint complete — next one unlocked!')
   }
 
   const generate = async () => {
@@ -174,8 +174,8 @@ function CurrentStoneBody({ stone, r2, goal, onUpdate }) {
         </View>
       )}
       {!op.hasTarget && (
-        <Pressable onPress={() => { const r = markStoneComplete(onUpdate, goal.id, stone.id); if (r && r.completed) setCelebrate(r.dreamDone ? 'Dream complete 🎉' : 'Stone complete!') }} style={{ borderRadius: 10, paddingVertical: 11, alignItems: 'center', backgroundColor: C.green + '22', borderWidth: 1, borderColor: C.green + '55' }}>
-          <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.green }}>{celebrate || 'Mark this stone reached'}</Text>
+        <Pressable onPress={() => { const r = markStoneComplete(onUpdate, goal.id, stone.id); if (r && r.completed) setCelebrate(r.dreamDone ? 'Dream complete 🎉' : 'Checkpoint complete!') }} style={{ borderRadius: 10, paddingVertical: 11, alignItems: 'center', backgroundColor: C.green + '22', borderWidth: 1, borderColor: C.green + '55' }}>
+          <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.green }}>{celebrate || 'Mark this checkpoint reached'}</Text>
         </Pressable>
       )}
 
@@ -184,7 +184,7 @@ function CurrentStoneBody({ stone, r2, goal, onUpdate }) {
         <Text style={{ fontFamily: F.medium, fontSize: 11.5, color: C.dim, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Today's tasks</Text>
         {dueToday.length === 0 && stone.tasks.length === 0 && (
           <Pressable onPress={generate} disabled={genBusy} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 10, paddingVertical: 11, backgroundColor: C.violetFill07, borderWidth: 1, borderColor: C.lineMid, borderStyle: 'dashed' }}>
-            {genBusy ? <ActivityIndicator color={C.violet} /> : <><Plus size={14} color={C.violet} /><Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.violet }}>Draft this stone's tasks</Text></>}
+            {genBusy ? <ActivityIndicator color={C.violet} /> : <><Plus size={14} color={C.violet} /><Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.violet }}>Draft this checkpoint's tasks</Text></>}
           </Pressable>
         )}
         {dueToday.length === 0 && stone.tasks.length > 0 && (

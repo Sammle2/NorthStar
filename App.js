@@ -42,7 +42,6 @@ import Plans from './src/app/screens/Plans'
 import Settings from './src/app/screens/Settings'
 import Navigation from './src/app/components/Navigation'
 import CoachReview from './src/app/components/CoachReview'
-import GoalEditor from './src/app/components/GoalEditor'
 import ErrorBoundary from './src/app/components/ErrorBoundary'
 import StarField from './src/app/components/StarField'
 import { LegalPage } from './src/app/components/LegalDocs'
@@ -92,7 +91,6 @@ export default function App() {
   const [tab, setTab] = useState('dashboard')
   const [showReview, setShowReview] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [editingGoal, setEditingGoal] = useState(null)
   const [isOnline, setIsOnline] = useState(true)
   const [authUser, setAuthUser] = useState(null)
   const [authSubScreen, setAuthSubScreen] = useState('signin') // 'signin' or 'signup'
@@ -626,16 +624,6 @@ export default function App() {
     persist({ ...cur, profile: { ...cur.profile, goals: reviewed.goals, lastLongTermReview: reviewed.lastLongTermReview } })
     setShowReview(false)
   }
-  const handleGoalSave = (updatedGoal) => {
-    // Read current state via the ref: onSave fires after GoalEditor's async dream
-    // check (and possibly a warning dialog the user sat on), so the render closure's
-    // appState/p could be stale and clobber a concurrent change to another goal.
-    const cur = appStateRef.current
-    const goals = (cur.profile?.goals || []).map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
-    persist({ ...cur, profile: { ...cur.profile, goals } })
-    setEditingGoal(null)
-  }
-
   // Public legal pages — /terms and /privacy render standalone with NO login and
   // without booting the app state machine, so they can be linked from an app-store
   // listing or marketing site. Web only; path is read once at render.
@@ -748,7 +736,7 @@ export default function App() {
           <ErrorBoundary key={`${tab}-${boundaryKey}`} onReset={() => setBoundaryKey((k) => k + 1)}>
             <TabFade tabKey={tab}>
               {tab === 'dashboard' && <Dashboard profile={p} onUpdate={updateProfile} onOpenSettings={() => setShowSettings(true)} onOpenCoach={() => setTab('coach')} onOpenPlans={openPlans} />}
-              {tab === 'roadmap' && <Roadmap profile={p} onUpdate={updateProfile} onRedoGoal={setEditingGoal} onOpenSprints={() => setTab('sprints')} />}
+              {tab === 'roadmap' && <Roadmap profile={p} onUpdate={updateProfile} onOpenSprints={() => setTab('sprints')} />}
               {tab === 'sprints' && <Sprints profile={p} onUpdate={updateProfile} />}
               {tab === 'community' && <Social profile={p} reloadKey={socialReload} onOpenDMs={() => setShowDMs(true)} onOpenAddFriends={() => setShowAddFriends(true)} onMessageUser={(id) => { setDmUserId(id); setShowDMs(true) }} />}
               {tab === 'coach' && <CoachChat profile={p} onUpdate={updateProfile} onOpenPlans={openPlans} />}
@@ -780,7 +768,6 @@ export default function App() {
               onDeleteAccount={handleDeleteAccount}
             />
           )}
-          {editingGoal && <GoalEditor goal={editingGoal} onSave={handleGoalSave} onCancel={() => setEditingGoal(null)} dream={p.dreamDescription} />}
           {showDMs && <DMs profile={p} initialUserId={dmUserId} onClose={() => { setShowDMs(false); setDmUserId(null) }} onOpenAddFriends={() => { setShowDMs(false); setDmUserId(null); setShowAddFriends(true) }} />}
           {showAddFriends && <AddFriends profile={p} onClose={() => setShowAddFriends(false)} onChanged={() => setSocialReload((k) => k + 1)} onMessageUser={(id) => { setShowAddFriends(false); setDmUserId(id); setShowDMs(true) }} />}
           {showPlans && <Plans profile={p} onUpdate={updateProfile} initialPlanId={plansFocusId} onClose={() => setShowPlans(false)} />}

@@ -1,26 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGrad, Path, RadialGradient, Stop } from 'react-native-svg'
-import { ChevronRight, Plus, RotateCcw, Sparkles, Zap } from 'lucide-react-native'
+import { Map, Plus, RotateCcw, Sparkles, TrendingUp, Zap } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS, normalizeCategory } from '../mockData'
-import MomentumCard from '../../momentum/MomentumCard'
+import StoneTrack from '../../momentum/StoneTrack'
+import StoneBuilder from '../../momentum/StoneBuilder'
 import GoalMomentumBar from '../../momentum/GoalMomentumBar'
 import StoneRoad from '../../momentum/StoneRoad'
 import { hasR2 } from '../../momentum/model'
-import { buildGoal, canAddGoal, recomputeGoal, shortStepLabel } from '../aiEngine'
+import { buildGoal, canAddGoal } from '../aiEngine'
 import { generateGoalsForFocus } from '../../services/aiService'
 import StarField from '../components/StarField'
 import { GoldStar } from '../components/StarMark'
 
 // A local starter goal per category — used only when NOVA's proposal is
 // unavailable (offline) for an in-app "create a goal in this category" tap.
+// Each is an OUTCOME/identity to reach, never a recurring task (the daily work
+// lives in tasks; the measurable milestones live in checkpoints).
 const STARTER_TITLES = {
-  mind: 'Read 12 Books This Year',
-  body: 'Work Out 3 Times a Week',
-  spirit: 'Meditate 10 Minutes Daily for 90 Days',
-  work: 'Grow My Income by 20% This Year',
-  relationships: 'Have One Real Catch-Up Every Week',
+  mind: 'Become a Sharp, Focused Thinker',
+  body: 'Build a Strong, Energized Body',
+  spirit: 'Cultivate Lasting Inner Peace',
+  work: 'Build a Career I’m Proud Of',
+  relationships: 'Build Deep, Lasting Relationships',
 }
 
 // The lit road + the celestial map's goal-lines animate their length, so an SVG
@@ -31,34 +34,12 @@ const AnimatedPath = Animated.createAnimatedComponent(Path)
 //  · THE DREAM (overview) — a celestial map: every goal is a planet with a line
 //    running up to the North Star (the dream). Each line lights up to the goal's
 //    progress; tap a planet to walk that goal's path.
-//  · A GOAL's path — the winding road. Square One at the bottom, the summit at
-//    the top; timed milestones (3 / 6 / 12 months) and the stepping stones
-//    leading to each one. Tap a stone to complete it; a milestone lights up once
-//    all its stones are done. Editing milestones happens only in Redo (GoalEditor).
-//    A slim constellation strip up top hops between paths and back to the Dream.
-const SEG_H = 150
-const PAD_TOP = 130
-const PAD_BOTTOM = 110
-
-function buildGeometry(nodeCount, W) {
-  const segments = nodeCount + 1
-  const height = PAD_TOP + PAD_BOTTOM + SEG_H * segments
-  const points = [{ x: W / 2, y: height - PAD_BOTTOM }]
-  for (let i = 0; i < nodeCount; i++) {
-    points.push({ x: i % 2 === 0 ? W * 0.27 : W * 0.73, y: height - PAD_BOTTOM - SEG_H * (i + 1) })
-  }
-  points.push({ x: W / 2, y: PAD_TOP })
-  let d = `M ${points[0].x} ${points[0].y}`
-  let length = 0
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1]
-    const b = points[i]
-    const my = (a.y + b.y) / 2
-    d += ` C ${a.x} ${my}, ${b.x} ${my}, ${b.x} ${b.y}`
-    length += Math.hypot(b.x - a.x, b.y - a.y) * 1.12
-  }
-  return { points, d, height, length }
-}
+//  · A GOAL — opens on its MOMENTUM page (the current checkpoint, its momentum,
+//    the Progress input, and today's tasks). A top toggle flips to the celestial
+//    ROADMAP: the winding violet→gold road plotting this goal's checkpoints
+//    (measurable, outcome-bound — never a 3/6/12-month timeline). A goal that
+//    hasn't laid its checkpoints yet shows the momentum setup here instead. A slim
+//    constellation strip up top hops between categories and back to the Dream.
 
 // Compact days-until label for a sprint's due date, for the small road pins:
 // "today", "1d", "5d", or "late" once it's past. By calendar day, recomputed
@@ -88,7 +69,7 @@ function SprintPill({ sprint, color, onPress }) {
   )
 }
 
-export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }) {
+export default function Roadmap({ profile, onUpdate, onOpenSprints }) {
   // Size the road to the ACTUAL container, not the window: on web the app lives in
   // a fixed 375px phone frame while the window is much wider — useWindowDimensions
   // alone would build a 520px road that overflows the frame and clips edge labels.
@@ -99,17 +80,17 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
   const goals = profile.goals
   const [view, setView] = useState('dream')
   const [selected, setSelected] = useState(null)
-  // Which stepping stone's detail dropdown is open (key: `${milestoneId}:${stepId}`).
-  const [expandedStep, setExpandedStep] = useState(null)
-  const scrollRef = useRef(null)
+  // A goal opens on its Momentum page; a top toggle flips to the celestial
+  // roadmap ('momentum' | 'roadmap').
+  const [goalView, setGoalView] = useState('momentum')
+  // "Redo" opens the checkpoint builder (StoneBuilder) to re-lay this goal's
+  // outcome, checkpoints & tasks — replacing the old milestone editor.
+  const [redoing, setRedoing] = useState(false)
 
   // Scroll position drives the parallax starfield (stars drift slower than the road).
   const scrollY = useRef(new Animated.Value(0)).current
-  // A slow pulse for the "you are here" glow on the current milestone.
+  // A slow pulse for the North Star's breathing glow on the celestial map.
   const pulse = useRef(new Animated.Value(0)).current
-  // Drives the lit portion of the road (0–100). It GLIDES to a new value when a
-  // stepping stone is completed, but SNAPS when you switch to a different path.
-  const roadAnim = useRef(new Animated.Value(0)).current
   const prevViewRef = useRef(view)
   useEffect(() => {
     Animated.loop(
@@ -144,7 +125,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
   // that goal's road; zero or many open the category view (empty prompt, or the
   // goal list with "add another").
   const openCategory = (key) => {
-    setSelected(null); setExpandedStep(null)
+    setSelected(null)
     const g = goalsInCategory(key)
     setView(g.length === 1 ? g[0].id : `cat:${key}`)
   }
@@ -184,100 +165,28 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
   const goalColors = useMemo(() => goalColorMap(goals), [goals])
   const accent = goal ? goalColors[goal.id] || C.amber : C.amber
 
-  // Flatten the goal into ordered path nodes: stepping stones then milestone, ×3.
-  const nodes = useMemo(() => {
-    if (!goal) return []
-    const out = []
-    goal.milestones.forEach((m) => {
-      ;(m.steps || []).forEach((s) => out.push({ type: 'step', milestone: m, step: s }))
-      out.push({ type: 'milestone', milestone: m })
-    })
-    return out
-  }, [goal, profile])
-
+  // The goal's headline progress (0–100). For a Dream that's laid its checkpoints
+  // this is checkpoint-derived (goal.progress is kept in step by the momentum
+  // store); otherwise it's whatever the goal already carries.
   const pct = goal ? goal.progress : dreamPct
+  // On a path change, reset the parallax baseline and drop back to the Momentum
+  // page — so every goal opens on its Momentum face, scrolled to the top.
   useEffect(() => {
     if (prevViewRef.current !== view) {
       prevViewRef.current = view
-      roadAnim.setValue(pct) // different path — jump, don't glide across goals
-      scrollY.setValue(0) // fresh view starts at the top — reset the parallax baseline
-    } else {
-      Animated.timing(roadAnim, { toValue: pct, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+      scrollY.setValue(0)
+      setGoalView('momentum')
     }
-  }, [pct, view])
-  const geo = useMemo(() => buildGeometry(goal ? nodes.length : 2, W), [view, nodes.length, W])
-  const nodePoints = goal ? geo.points.slice(1, -1) : []
-
-  // The current milestone — the first one you haven't reached yet — gets the glow.
-  const currentMsId = goal ? (goal.milestones.find((m) => !m.completed) || {}).id : null
-
-  // Sequential progression: stepping stones must be completed in order, across the
-  // whole goal. The "frontier" is the first stone you haven't done yet — you can
-  // complete that one (or uncheck the last one you did); everything ahead is locked
-  // so you can't click past the milestone you're on.
-  const flatSteps = useMemo(() => {
-    const arr = []
-    ;(goal?.milestones || []).forEach((m) => (m.steps || []).forEach((s) => arr.push({ key: `${m.id}:${s.id}`, done: !!s.completed })))
-    return arr
-  }, [goal, profile])
-  const frontier = useMemo(() => {
-    const i = flatSteps.findIndex((s) => !s.done)
-    return i === -1 ? flatSteps.length : i
-  }, [flatSteps])
-  // The single next action on THIS path — the first incomplete stepping stone,
-  // in order (same frontier the road enforces). Drives the "Next up" line.
-  const nextAction = useMemo(() => {
-    if (!goal) return null
-    for (const m of goal.milestones || []) {
-      for (const s of m.steps || []) {
-        if (!s.completed) return { milestone: m, step: s }
-      }
-    }
-    return null
-  }, [goal, profile])
-  // 'done' = completed & locked, 'last' = last completed (can undo), 'current' =
-  // next one to do, 'locked' = ahead of the frontier (not yet reachable).
-  const stepStatusOf = (mId, sId) => {
-    const idx = flatSteps.findIndex((s) => s.key === `${mId}:${sId}`)
-    if (idx < 0) return 'locked'
-    if (idx === frontier) return 'current'
-    if (idx === frontier - 1) return 'last'
-    if (idx < frontier) return 'done'
-    return 'locked'
-  }
-
-  const toggleStep = (milestoneId, stepId) => {
-    if (!goal) return
-    // Only the active edge is interactive — the next stone to do, or the last one
-    // done (to undo). Anything else is locked, enforcing one-before-the-other.
-    const status = stepStatusOf(milestoneId, stepId)
-    if (status !== 'current' && status !== 'last') return
-    const updatedGoal = recomputeGoal({
-      ...goal,
-      milestones: goal.milestones.map((m) =>
-        m.id !== milestoneId ? m : { ...m, steps: m.steps.map((s) => (s.id === stepId ? { ...s, completed: !s.completed } : s)) },
-      ),
-    })
-    onUpdate({ ...profile, goals: goals.map((g) => (g.id === goal.id ? updatedGoal : g)) })
-  }
+  }, [view])
 
   // ── Active sprints ──────────────────────────────────────────────────────────
-  // On a goal's path, that goal's sprints ride the road just up-road from the
-  // current stepping stone. Sprints not tied to any goal live on the celestial
-  // map instead (handled there). Every pin taps through to the Sprints tab.
+  // Sprints not tied to any goal float on the celestial map (handled there); each
+  // pin taps through to the Sprints tab.
   const sprintActive = (s) => (s.steps?.length ? !s.steps.every((st) => st.completed) : !s.completed)
   const liveSprints = (profile.sprints || []).filter(sprintActive)
-  const roadSprints = goal ? liveSprints.filter((s) => s.linkedGoalId === goal.id) : []
-  const squareOnePoint = { x: W / 2, y: geo.height - PAD_BOTTOM }
-  let sprintAnchor = squareOnePoint
-  if (goal) {
-    const fi = nodes.findIndex((n) => n.type === 'step' && stepStatusOf(n.milestone.id, n.step.id) === 'current')
-    sprintAnchor = nodePoints[fi] || nodePoints[nodePoints.length - 1] || squareOnePoint
-  }
 
   // The celestial map's content height (mirrors CelestialMap's layout math) so
-  // the dream view's parallax spans the REAL scrollable height — the phantom
-  // 2-node road geo would freeze the stars early on tall maps (many goals).
+  // the dream view's parallax spans the REAL scrollable height on tall maps.
   const looseSprintCount = liveSprints.filter((s) => !s.linkedGoalId).length
   const mapH = Math.max(600, 288 + (CATEGORIES.length - 1) * 148 + 160 + (looseSprintCount ? 30 + Math.min(looseSprintCount, 4) * 26 : 0))
 
@@ -290,42 +199,29 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
           <Text numberOfLines={2} style={{ flex: 1, fontFamily: F.display, fontSize: 20, color: C.ink, letterSpacing: 0.8, lineHeight: 26 }}>
             {goal ? goal.title.toUpperCase() : catView ? CATEGORY_LABELS[catView].toUpperCase() : 'THE DREAM'}
           </Text>
-          {goal && onRedoGoal && (
-            <Pressable onPress={() => onRedoGoal(goal)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginTop: 4, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }}>
+          {goal && (
+            <Pressable onPress={() => setRedoing(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginTop: 4, backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }}>
               <RotateCcw size={13} color={C.violet} strokeWidth={2.2} />
               <Text style={{ fontFamily: F.semibold, fontSize: 12, color: C.violet }}>Redo</Text>
             </Pressable>
           )}
         </View>
-        {/* NEXT UP — the one action to take next on THIS path, pinned under the
-            header so the immediate move is always visible without scanning the
-            whole road. One line, ellipsized; tap to see it in the detail card.
-            Occupies the same slot the old generic hint did — no extra rows. */}
-        {goal && pct < 100 && nextAction && (
-          <Pressable
-            onPress={() => setSelected({ horizon: `Next up · ${nextAction.milestone.horizon}`, title: nextAction.step.title, detail: 'Your next step on this path — tap its glowing stone on the road to complete it.', lit: false, accent, current: true })}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, alignSelf: 'flex-start', maxWidth: '100%', borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11, backgroundColor: accent + '14', borderWidth: 1, borderColor: accent + '40' }}
-          >
-            <Text numberOfLines={1} style={{ fontFamily: F.bold, fontSize: 9, color: accent, letterSpacing: 1.2, flexShrink: 0 }}>NEXT UP</Text>
-            <Text numberOfLines={1} style={{ flexShrink: 1, fontFamily: F.medium, fontSize: 12, color: C.ink2 }}>{nextAction.step.title || nextAction.step.label}</Text>
-            <ChevronRight size={13} color={accent} strokeWidth={2.4} />
-          </Pressable>
-        )}
-        {/* Goal complete → Nova asks what's next (the input lives in Redo → Draft for me). */}
-        {goal && pct >= 100 && onRedoGoal && (
-          <Pressable onPress={() => onRedoGoal(goal)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)' }}>
+        {/* Goal complete → re-lay the Dream (name a fresh outcome, checkpoints & tasks). */}
+        {goal && pct >= 100 && (
+          <Pressable onPress={() => setRedoing(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)' }}>
             <Text style={{ flex: 1, fontFamily: F.body, fontSize: 12.5, color: C.amber, lineHeight: 18 }}>
-              🎉 You’ve reached this goal! Tell Nova your next priority and it’ll draft what’s next.
+              🎉 You’ve reached this goal! Ready for what’s next? Redo it to set a fresh outcome.
             </Text>
             <Text style={{ fontFamily: F.bold, fontSize: 12, color: C.amberInk, backgroundColor: C.amber, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, overflow: 'hidden' }}>Redo</Text>
           </Pressable>
         )}
       </View>
 
-      {/* Momentum roadmap: for the viewed goal, a compact card showing its current
-          stone + lever-weighted momentum, opening the full StoneDetail sheet. Sits
-          between header and the switcher so the celestial-map layout is untouched. */}
-      {goal && <MomentumCard goal={goal} onUpdate={onUpdate} accent={accent} />}
+      {/* Momentum-first goal view: a top toggle flips between the Momentum page
+          (default — current checkpoint, momentum, the Progress input, today's
+          tasks) and the celestial roadmap. Only shown once the Dream has laid its
+          checkpoints; before that the Momentum page hosts the setup itself. */}
+      {goal && hasR2(goal) && <GoalViewToggle value={goalView} onChange={setGoalView} accent={accent} />}
 
       {/* On a goal's path or a category view, a slim constellation strip hops
           between the five categories and back to the Dream. The Dream overview
@@ -334,7 +230,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
         <ConstellationStrip
           goals={goals}
           activeCat={goal ? normalizeCategory(goal.category) : catView}
-          onSelectDream={() => { setView('dream'); setSelected(null); setExpandedStep(null) }}
+          onSelectDream={() => { setView('dream'); setSelected(null) }}
           onSelectCategory={openCategory}
         />
       )}
@@ -352,7 +248,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
             transform: [
               {
                 translateY: scrollY.interpolate({
-                  inputRange: [0, Math.max(1, goal ? geo.height : mapH)],
+                  inputRange: [0, Math.max(1, goal ? 1200 : mapH)],
                   outputRange: [0, -150],
                   extrapolate: 'clamp',
                 }),
@@ -364,195 +260,26 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
         </Animated.View>
 
         {goal ? (
-        hasR2(goal) ? (
-          // Momentum goals: the celestial road plots this goal's STONES (outcome
-          // checkpoints) — no 3/6/12-month milestones. The stones are display
-          // only; progress is logged in the Progress entry and the road advances
-          // itself. Legacy goals without stones keep the original road below.
-          <StoneRoad goal={goal} onUpdate={onUpdate} />
-        ) : (
-        <Animated.ScrollView
-          // Remount per path: a goal→goal hop then starts at offset 0 (matching
-          // the scrollY reset) and the mount-time scrollToEnd re-syncs both —
-          // otherwise the reused scroller keeps its old offset and the parallax
-          // starfield jumps out of step with it.
-          key={view}
-          ref={scrollRef}
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 120 }}
-          scrollEventThrottle={16}
-          onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
-        >
-        <View style={{ width: W, alignSelf: 'center', height: geo.height }}>
-          <Svg width={W} height={geo.height} style={StyleSheet.absoluteFill}>
-            <Defs>
-              <SvgGrad id="roadFill" x1="0" y1={String(geo.height)} x2="0" y2="0" gradientUnits="userSpaceOnUse">
-                <Stop offset="0" stopColor="#a78bfa" />
-                <Stop offset="0.55" stopColor="#d8a874" />
-                <Stop offset="1" stopColor="#f59e0b" />
-              </SvgGrad>
-            </Defs>
-
-            {/* The path — a single winding line you follow up toward your dream. */}
-            <Path d={geo.d} stroke="rgba(167,139,250,0.30)" strokeWidth="3" fill="none" strokeLinecap="round" />
-            {/* The lit portion — how far you've come, revealed along the path from
-                Square One. strokeDashoffset animates so it GLIDES forward as you
-                complete a stepping stone rather than jumping. */}
-            <AnimatedPath
-              d={geo.d}
-              stroke="url(#roadFill)"
-              strokeWidth="3"
-              fill="none"
-              strokeLinecap="round"
-              pathLength={100}
-              strokeDasharray="100 100"
-              strokeDashoffset={roadAnim.interpolate({ inputRange: [0, 100], outputRange: [100, 0] })}
-            />
-          </Svg>
-
-          {/* Square one */}
-          <View style={[styles.marker, { top: geo.height - PAD_BOTTOM - 14, left: W / 2 - 75, width: 150 }]}>
-            <View style={[styles.stepNode, { borderColor: C.violet, backgroundColor: C.bg }]} />
-            <Text style={[styles.stepLabel, { color: C.dim }]}>Square One</Text>
-          </View>
-
-          {/* Stepping stones + milestone checkpoints */}
-          {goal &&
-            nodePoints.map((p, i) => {
-              const node = nodes[i]
-              if (node.type === 'step') {
-                const lit = node.step.completed
-                const status = stepStatusOf(node.milestone.id, node.step.id)
-                const locked = status === 'locked'
-                const current = status === 'current'
-                const stepKey = `${node.milestone.id}:${node.step.id}`
-                const expanded = expandedStep === stepKey
-                // Path shows the compact 2-3 word name; the full detail lives in
-                // the tap-to-expand dropdown. Legacy steps derive a label locally.
-                const label = node.step.label || shortStepLabel(node.step.title)
-                // Dropdown card: wider than the marker, clamped inside the screen.
-                const cardW = 240
-                const cardLeft = Math.max(8, Math.min(p.x - cardW / 2, W - cardW - 8)) - (p.x - 75)
-                return (
-                  <View
-                    key={stepKey}
-                    style={[styles.marker, { top: p.y - 11, left: p.x - 75, width: 150, zIndex: expanded ? 40 : 1 }, locked && !expanded && { opacity: 0.4 }]}
-                  >
-                    {/* The stone itself still toggles completion */}
-                    <Pressable
-                      onPress={locked ? undefined : () => toggleStep(node.milestone.id, node.step.id)}
-                      disabled={locked}
-                      hitSlop={8}
-                      style={[
-                        styles.stepNode,
-                        lit
-                          ? { backgroundColor: accent, borderColor: accent, shadowColor: accent, shadowOpacity: 0.9, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } }
-                          : current
-                            ? { backgroundColor: C.bg, borderColor: accent, shadowColor: accent, shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }
-                            : { backgroundColor: C.bg, borderColor: C.lineStrong },
-                      ]}
-                    />
-                    {/* The label opens/closes the detail dropdown */}
-                    <Pressable onPress={() => setExpandedStep(expanded ? null : stepKey)} hitSlop={6} style={{ width: '100%', alignItems: 'center' }}>
-                      <Text style={[styles.stepLabel, { color: lit ? C.ink2 : current ? accent : C.faint }]}>
-                        {locked ? '🔒 ' : ''}{label} <Text style={{ fontSize: 9, color: C.faint2 }}>{expanded ? '▲' : '▼'}</Text>
-                      </Text>
-                    </Pressable>
-                    {expanded && (
-                      <Pressable
-                        onPress={() => setExpandedStep(null)}
-                        style={{
-                          position: 'absolute', top: 46, left: cardLeft, width: cardW,
-                          backgroundColor: C.card, borderWidth: 1.5, borderColor: lit || current ? accent : C.lineStrong,
-                          borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
-                          shadowColor: '#000', shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 5 },
-                        }}
-                      >
-                        <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.ink2, lineHeight: 18 }}>{node.step.title}</Text>
-                        <Text style={{ fontFamily: F.medium, fontSize: 10.5, color: C.faint, marginTop: 8 }}>
-                          {lit ? '✓ Completed' : current ? 'Up next — tap the stone to complete it' : locked ? 'Locked — finish the earlier stones first' : 'Tap the stone to undo'}
-                        </Text>
-                      </Pressable>
-                    )}
-                  </View>
-                )
-              }
-              // milestone checkpoint
-              const m = node.milestone
-              const lit = m.completed
-              const isCurrent = m.id === currentMsId
-              const doneSteps = (m.steps || []).filter((s) => s.completed).length
-              return (
-                <Pressable
-                  key={m.id}
-                  onPress={() => setSelected({ horizon: m.horizon, title: m.title, detail: `${doneSteps}/${(m.steps || []).length} stepping stones complete`, lit, accent, current: isCurrent })}
-                  style={[styles.marker, { top: p.y - 19, left: p.x - 85, width: 170 }]}
-                >
-                  <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-                    {/* "You are here" pulsing glow on the current milestone */}
-                    {isCurrent && (
-                      <Animated.View
-                        pointerEvents="none"
-                        style={{
-                          position: 'absolute',
-                          width: 62,
-                          height: 62,
-                          top: -12,
-                          left: -12,
-                          borderRadius: 31,
-                          backgroundColor: accent,
-                          opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.42] }),
-                          transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.45] }) }],
-                        }}
-                      />
-                    )}
-                    <View
-                      style={[
-                        styles.msNode,
-                        lit
-                          ? { backgroundColor: accent, borderColor: accent, shadowColor: accent, shadowOpacity: 0.9, shadowRadius: 14, shadowOffset: { width: 0, height: 0 } }
-                          : { backgroundColor: C.card, borderColor: accent },
-                        isCurrent && !lit ? { shadowColor: accent, shadowOpacity: 0.9, shadowRadius: 12, shadowOffset: { width: 0, height: 0 } } : null,
-                      ]}
-                    >
-                      <Text style={{ fontFamily: F.bold, fontSize: 11, color: lit ? C.amberInk : accent }}>{m.horizon.split(' ')[0]}</Text>
-                    </View>
-                  </View>
-                  {isCurrent && <Text style={{ fontFamily: F.bold, fontSize: 8.5, color: accent, letterSpacing: 1.5, marginTop: 5, width: '100%', textAlign: 'center' }}>YOU ARE HERE</Text>}
-                  <Text style={[styles.msKicker, { color: accent, marginTop: isCurrent ? 2 : 7 }]}>{m.horizon.toUpperCase()}</Text>
-                  <Text style={[styles.msLabel, { color: lit ? C.ink : C.ink2 }]}>{m.title}</Text>
-                </Pressable>
-              )
-            })}
-
-          {/* Summit */}
-          <Pressable
-            onPress={() => setSelected({ horizon: 'The summit', title: goal.title, detail: `${pct}% of the path is lit`, lit: pct >= 100, accent })}
-            style={[styles.marker, { top: PAD_TOP - 34, left: W / 2 - 110, width: 220 }]}
-          >
-            <Text style={{ fontSize: 30 }}>{pct >= 100 ? '🏆' : '✦'}</Text>
-            <Text style={[styles.summitLabel, { color: C.amber }]}>{goal.title}</Text>
-          </Pressable>
-
-          {/* Active sprints — small ⚡ pins stacked just up-road from the current
-              stepping stone. Up to three show; a "+N" pin covers the rest. Every
-              pin taps through to the Sprints tab. */}
-          {roadSprints.slice(0, 3).map((s, i) => (
-            <View key={s.id} pointerEvents="box-none" style={{ position: 'absolute', top: sprintAnchor.y - 46 - i * 26, left: Math.max(8, Math.min(sprintAnchor.x - 80, W - 168)), width: 160, alignItems: 'center' }}>
-              <SprintPill sprint={s} color={accent} onPress={onOpenSprints} />
-            </View>
-          ))}
-          {roadSprints.length > 3 && (
-            <View pointerEvents="box-none" style={{ position: 'absolute', top: sprintAnchor.y - 46 - 3 * 26, left: Math.max(8, Math.min(sprintAnchor.x - 80, W - 168)), width: 160, alignItems: 'center' }}>
-              <Pressable onPress={onOpenSprints} hitSlop={6} style={{ borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: accent + '18', borderWidth: 1, borderColor: accent + '45' }}>
-                <Text style={{ fontFamily: F.bold, fontSize: 9.5, color: accent }}>+{roadSprints.length - 3} more sprint{roadSprints.length - 3 === 1 ? '' : 's'}</Text>
-              </Pressable>
-            </View>
-          )}
-        </View>
-        </Animated.ScrollView>
-        )) : catView ? (
+          goalView === 'roadmap' && hasR2(goal) ? (
+            // The celestial ROADMAP page — this Dream's checkpoints plotted on the
+            // winding violet->gold road. Display-only: it advances as you log real
+            // progress on the Momentum page. Never a 3/6/12-month timeline.
+            <StoneRoad goal={goal} />
+          ) : (
+            // The MOMENTUM page (default) — the current checkpoint, its momentum,
+            // the Progress input, and today's tasks. A Dream that hasn't laid its
+            // checkpoints yet shows the setup here instead of any dated milestones.
+            <Animated.ScrollView
+              key={`mom-${view}`}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ padding: 16, paddingBottom: 130 }}
+              scrollEventThrottle={16}
+              onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+            >
+              <StoneTrack goal={goal} onUpdate={onUpdate} situation={profile.situation || profile.dreamDescription || ''} />
+            </Animated.ScrollView>
+          )
+        ) : catView ? (
           <CategoryView
             key={catView}
             categoryKey={catView}
@@ -560,7 +287,7 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
             creating={creating === catView}
             W={W}
             scrollY={scrollY}
-            onSelectGoal={(id) => { setView(id); setSelected(null); setExpandedStep(null) }}
+            onSelectGoal={(id) => { setView(id); setSelected(null) }}
             onCreate={() => createGoalInCategory(catView)}
           />
         ) : (
@@ -595,6 +322,46 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
           </View>
         </View>
       )}
+
+      {/* Redo → the checkpoint builder: re-name the outcome and re-lay this goal's
+          checkpoints & tasks (replaces goal.r2). A full-screen Modal. */}
+      {redoing && goal && (
+        <StoneBuilder
+          goal={goal}
+          onUpdate={onUpdate}
+          situation={profile.situation || profile.dreamDescription || ''}
+          onClose={() => setRedoing(false)}
+        />
+      )}
+    </View>
+  )
+}
+
+// The top toggle on a goal view: the Momentum page (the doing surface — current
+// checkpoint, its momentum, the Progress input, today's tasks) vs. the celestial
+// Roadmap (the winding checkpoint road). A goal always opens on Momentum; tap
+// "Roadmap" to see the road.
+function GoalViewToggle({ value, onChange, accent = C.amber }) {
+  const opts = [
+    { key: 'momentum', label: 'Momentum', Icon: TrendingUp },
+    { key: 'roadmap', label: 'Roadmap', Icon: Map },
+  ]
+  return (
+    <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 24, marginTop: 10, marginBottom: 2 }}>
+      {opts.map((o) => {
+        const on = value === o.key
+        const tint = o.key === 'roadmap' ? accent : C.violet
+        return (
+          <Pressable
+            key={o.key}
+            onPress={() => onChange(o.key)}
+            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 999, paddingVertical: 10, backgroundColor: on ? tint + '1E' : 'rgba(13,13,27,0.7)', borderWidth: 1, borderColor: on ? tint : C.line }}
+          >
+            <o.Icon size={14} color={on ? tint : C.faint} strokeWidth={2.2} />
+            <Text style={{ fontFamily: on ? F.bold : F.medium, fontSize: 12.5, color: on ? tint : C.dim }}>{o.label}</Text>
+          </Pressable>
+        )
+      })}
     </View>
   )
 }
@@ -983,16 +750,7 @@ function ConstellationStrip({ goals, activeCat, onSelectDream, onSelectCategory 
 }
 
 const styles = StyleSheet.create({
-  // Markers are FIXED-WIDTH containers centered on their node (left: x - width/2),
-  // so labels are truly centered and can never spill past the screen edge. Labels
-  // fill the container ('100%') and wrap without clamping — full text, always.
-  marker: { position: 'absolute', alignItems: 'center' },
-  stepNode: { width: 22, height: 22, borderRadius: 11, borderWidth: 2.5 },
-  msNode: { width: 38, height: 38, borderRadius: 19, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
-  stepLabel: { fontSize: 11, fontFamily: F.medium, marginTop: 6, textAlign: 'center', lineHeight: 15, width: '100%' },
-  msKicker: { fontSize: 9, fontFamily: F.bold, letterSpacing: 1.5, marginTop: 7, width: '100%', textAlign: 'center' },
-  msLabel: { fontSize: 13, fontFamily: F.bold, marginTop: 2, textAlign: 'center', lineHeight: 17, width: '100%' },
-  summitLabel: { fontSize: 14, fontFamily: F.bold, marginTop: 6, textAlign: 'center', lineHeight: 19, width: '100%' },
+  // The Dream detail card, pinned above the tab bar.
   detail: {
     position: 'absolute',
     bottom: 96,

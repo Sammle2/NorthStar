@@ -287,7 +287,7 @@ export default function MilestonesEditor({
                         borderWidth: 1,
                         borderColor: C.amber,
                       }}
-                      placeholder="Add a stepping stone..."
+                      placeholder="Add a checkpoint..."
                       placeholderTextColor={C.text500}
                       value={newStepText[msIndex] || ''}
                       onChangeText={(text) =>

@@ -153,12 +153,12 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
             <View key={m.id} style={{ borderRadius: 16, borderWidth: 1, borderColor: color + '33', backgroundColor: 'rgba(13,13,27,0.6)', padding: 14, marginBottom: 14 }}>
               <Text style={{ fontFamily: F.bold, fontSize: 10.5, color, letterSpacing: 1.5, marginBottom: 8 }}>{m.horizon.toUpperCase()}</Text>
               <TextInput value={m.title} onChangeText={(t) => editMsTitle(mi, t)} placeholder={`${m.horizon} milestone`} placeholderTextColor={C.faint2} autoComplete="off" multiline style={[inputStyle, { fontFamily: F.semibold, marginBottom: 12 }]} />
-              <Text style={{ fontFamily: F.display, fontSize: 9.5, color: C.faint, letterSpacing: 1.5, marginBottom: 8 }}>STEPPING STONES</Text>
+              <Text style={{ fontFamily: F.display, fontSize: 9.5, color: C.faint, letterSpacing: 1.5, marginBottom: 8 }}>CHECKPOINTS</Text>
               <View style={{ gap: 6 }}>
                 {m.steps.map((s, si) => (
                   <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, paddingLeft: 12, paddingRight: 6, backgroundColor: C.lineSoft, borderWidth: 1, borderColor: C.line }}>
                     <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-                    <TextInput value={s.title} onChangeText={(t) => editStep(mi, si, t)} placeholder={`Stepping stone ${si + 1}`} placeholderTextColor={C.faint2} autoComplete="off" style={{ flex: 1, fontFamily: F.body, fontSize: 13, color: C.ink, paddingVertical: 9 }} />
+                    <TextInput value={s.title} onChangeText={(t) => editStep(mi, si, t)} placeholder={`Checkpoint ${si + 1}`} placeholderTextColor={C.faint2} autoComplete="off" style={{ flex: 1, fontFamily: F.body, fontSize: 13, color: C.ink, paddingVertical: 9 }} />
                     <Pressable onPress={() => removeStep(mi, si)} hitSlop={6} style={{ padding: 4 }}>
                       <Trash2 size={14} color={C.faint2} strokeWidth={2} />
                     </Pressable>
@@ -167,7 +167,7 @@ export default function GoalEditor({ goal, onSave, onCancel, dream }) {
               </View>
               <Pressable onPress={() => addStep(mi)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, alignSelf: 'flex-start', paddingVertical: 4 }}>
                 <Plus size={13} color={color} strokeWidth={2.6} />
-                <Text style={{ fontFamily: F.medium, fontSize: 12.5, color }}>Add stepping stone</Text>
+                <Text style={{ fontFamily: F.medium, fontSize: 12.5, color }}>Add checkpoint</Text>
               </Pressable>
             </View>
           ))}

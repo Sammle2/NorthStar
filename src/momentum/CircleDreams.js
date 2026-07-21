@@ -74,7 +74,7 @@ export default function CircleDreams({ circle, profile }) {
               <Text style={{ fontFamily: F.semibold, fontSize: 14.5, color: C.ink, marginTop: 8 }} numberOfLines={1}>{d.dream_title || 'A Dream'}</Text>
               {showMomentum && d.stone_title ? (
                 <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint, marginTop: 2 }}>
-                  Stone {(d.stone_index ?? 0) + 1} of {d.stone_count || '—'} · {d.stone_title}{d.outcome_text ? ` · ${d.outcome_text}` : ''}
+                  Checkpoint {(d.stone_index ?? 0) + 1} of {d.stone_count || '—'} · {d.stone_title}{d.outcome_text ? ` · ${d.outcome_text}` : ''}
                 </Text>
               ) : null}
               {showMomentum && d.momentum_pct != null && (

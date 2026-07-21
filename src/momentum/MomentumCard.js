@@ -35,7 +35,7 @@ export default function MomentumCard({ goal, onUpdate, situation = '', accent = 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <TrendingUp size={16} color={color} strokeWidth={2.2} />
               <Text style={{ flex: 1, fontFamily: F.medium, fontSize: 11.5, color: C.dim, letterSpacing: 1 }}>
-                {cur ? `STONE ${curIdx + 1} OF ${stones.length}` : 'ALL STONES COMPLETE'}
+                {cur ? `CHECKPOINT ${curIdx + 1} OF ${stones.length}` : 'ALL CHECKPOINTS COMPLETE'}
               </Text>
               <Text style={{ fontFamily: F.bold, fontSize: 14, color }}>{mPct == null ? '—' : `${mPct}%`}</Text>
               <ChevronRight size={16} color={C.faint} />
@@ -50,7 +50,7 @@ export default function MomentumCard({ goal, onUpdate, situation = '', accent = 
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: F.semibold, fontSize: 13.5, color: C.ink }}>Add momentum to this Dream</Text>
-              <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.dim, marginTop: 1 }}>Stones, tasks & a real target — no deadlines</Text>
+              <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.dim, marginTop: 1 }}>Checkpoints, tasks & a real target — no deadlines</Text>
             </View>
             <ChevronRight size={16} color={C.faint} />
           </View>

@@ -4,19 +4,16 @@
 // checkpoints), not 3/6/12-month milestones. Square One at the bottom, the
 // summit at the top, and the road lights up as far as you've actually come.
 //
-// Stones are DELIBERATELY not tappable: a stone is earned by moving the real
-// number, so you log it in the Progress entry below and the road advances
-// itself. Nothing here can be "checked off" by hand.
+// This page is DISPLAY-ONLY: checkpoints are earned by moving the real number,
+// which you log on the Momentum page (StoneTrack) — the road here just lights up
+// to the progress recorded in goal.r2. Nothing here can be logged or checked off.
 import React, { useRef, useState } from 'react'
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { ScrollView, Text, View } from 'react-native'
 import Svg, { Defs, LinearGradient as SvgGrad, Path, Stop } from 'react-native-svg'
 import { Check, Lock } from 'lucide-react-native'
 import { C, F } from '../app/tokens'
-import GlowProgress from '../app/components/GlowProgress'
 import { getR2, orderedStones, currentStone } from './model'
-import { outcomeProgress, paceEta, dreamProgressPct, stoneMomentum, pct as toPct } from './engine'
-import { logOutcome, markStoneComplete } from './store'
-import { momentumColor } from './GoalMomentumBar'
+import { dreamProgressPct } from './engine'
 
 const SEG_H = 150
 const PAD_TOP = 120
@@ -47,7 +44,7 @@ function targetLine(stone) {
   return `${stone.targetMetric || 'target'} ${arrow} ${stone.targetValue}${stone.targetUnit ? ' ' + stone.targetUnit : ''}`
 }
 
-export default function StoneRoad({ goal, onUpdate }) {
+export default function StoneRoad({ goal }) {
   const [containerW, setContainerW] = useState(0)
   const scrollRef = useRef(null)
   const r2 = getR2(goal)
@@ -59,9 +56,6 @@ export default function StoneRoad({ goal, onUpdate }) {
 
   return (
     <View style={{ flex: 1 }} onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}>
-      {/* Progress entry — the ONLY way a stone gets earned. */}
-      <ProgressEntry goal={goal} stone={cur} onUpdate={onUpdate} />
-
       <ScrollView
         ref={scrollRef}
         style={{ flex: 1 }}
@@ -147,76 +141,6 @@ export default function StoneRoad({ goal, onUpdate }) {
           </View>
         </View>
       </ScrollView>
-    </View>
-  )
-}
-
-// ── the progress entry ───────────────────────────────────────────────────────
-// Logging the real number is what advances the road. When a stone has no numeric
-// target there's nothing to measure, so it falls back to a single "reached it".
-function ProgressEntry({ goal, stone, onUpdate }) {
-  const [val, setVal] = useState('')
-  const [note, setNote] = useState(null)
-  if (!stone) {
-    return (
-      <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 }}>
-        <Text style={{ fontFamily: F.semibold, fontSize: 13, color: C.green, textAlign: 'center' }}>Every stone reached 🏆</Text>
-      </View>
-    )
-  }
-  const op = outcomeProgress(stone)
-  const eta = paceEta(stone)
-  const r2 = getR2(goal)
-  const m = stoneMomentum(r2, stone)
-
-  const save = () => {
-    const v = parseFloat(val)
-    if (isNaN(v)) return
-    const res = logOutcome(onUpdate, goal.id, stone.id, v)
-    setVal('')
-    if (res && res.completed) setNote(res.dreamDone ? 'Dream complete 🎉' : 'Stone reached — the next one just unlocked')
-  }
-
-  return (
-    <View style={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10 }}>
-      <View style={{ borderRadius: 14, padding: 14, backgroundColor: C.violetFill07, borderWidth: 1, borderColor: C.lineMid }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={{ fontFamily: F.medium, fontSize: 11, color: C.dim, letterSpacing: 1, textTransform: 'uppercase' }}>Progress</Text>
-          <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.violet }}>{op.hasTarget ? op.text : stone.title}</Text>
-        </View>
-        {op.pct != null && <View style={{ marginTop: 8 }}><GlowProgress value={Math.round(op.pct * 100)} color={C.violet} height={6} /></View>}
-        {eta && <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint, marginTop: 7 }}>{eta.text} · a projection, not a deadline</Text>}
-
-        {op.hasTarget ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
-            <TextInput
-              value={val}
-              onChangeText={(t) => setVal(t.replace(/[^0-9.\-]/g, ''))}
-              placeholder={`Log ${stone.targetMetric || 'progress'}${stone.targetUnit ? ` (${stone.targetUnit})` : ''}`}
-              placeholderTextColor={C.faint}
-              keyboardType="numeric"
-              style={{ flex: 1, backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: C.lineMid, paddingHorizontal: 11, paddingVertical: 9, color: C.ink, fontFamily: F.medium, fontSize: 13 }}
-            />
-            <Pressable onPress={save} style={{ borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: C.violet }}>
-              <Text style={{ fontFamily: F.bold, fontSize: 12.5, color: C.amberInk }}>Log</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            onPress={() => { const r = markStoneComplete(onUpdate, goal.id, stone.id); if (r && r.completed) setNote(r.dreamDone ? 'Dream complete 🎉' : 'Stone reached') }}
-            style={{ marginTop: 10, borderRadius: 10, paddingVertical: 11, alignItems: 'center', backgroundColor: C.green + '22', borderWidth: 1, borderColor: C.green + '55' }}
-          >
-            <Text style={{ fontFamily: F.semibold, fontSize: 12.5, color: C.green }}>Mark this stone reached</Text>
-          </Pressable>
-        )}
-
-        {note && <Text style={{ fontFamily: F.semibold, fontSize: 12, color: C.green, marginTop: 9 }}>{note}</Text>}
-        {m != null && (
-          <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint, marginTop: 9 }}>
-            Momentum {toPct(m)}% · your daily habits. The road moves on the number above.
-          </Text>
-        )}
-      </View>
     </View>
   )
 }
