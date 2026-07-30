@@ -505,7 +505,7 @@ export async function generateSupportingGoals({ name = '', primaryGoal = '', ext
 They also care about these other life areas and want ONE concrete goal in each:
 ${domainList}
 
-For each area, write ONE specific, actionable goal for ${firstName} — something real they could start this week and measure, as a short goal title (Title Case, no leading "I want to"). Make each goal SMART: it MUST contain a measurable target — a number, a frequency, or a named deliverable (e.g. "Run 3 Times a Week", "Save $3,000", "Ship a Portfolio Site") — and be realistically achievable within 12 months by a busy person. Tie it to their dream where it fits. NEVER vague — do NOT write things like "Build a career you're proud of", "Get healthier", "Reach financial freedom", or "Find balance".
+For each area, write ONE goal for ${firstName} as a short Title Case goal title (no leading "I want to"). Each goal MUST be an OUTCOME or identity to REACH — never a recurring task, habit, frequency, or quota. If the natural phrasing is a repeated action ("Run 3 times a week", "Ship a portfolio site"), elevate it to the outcome it SERVES ("Become a Confident Runner", "Build a Career I'm Proud Of"): the repeated action becomes a daily TASK and the numbers become CHECKPOINTS — never the goal itself. Make it something ${firstName} could picture having achieved, realistically reachable within ~12 months, and tie it to their dream where it fits. NEVER an empty cliché like "Find balance" or "Grow spiritually".
 
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 
@@ -546,11 +546,11 @@ export async function generateGoalsForFocus({ focus = {}, ratings = {}, pursuing
 ${lines}
 ${pursuing && pursuing.trim() ? `\nThey're already carrying this in their life right now: "${pursuing.trim()}". Make the goals fit around it, not pile on top of it.` : ''}
 
-For EACH area, write exactly the requested number of specific, actionable goal titles for ${firstName}. Each goal MUST:
-- be SMART: contain a measurable target — a number, a frequency, or a named deliverable (e.g. "Run 3 Times a Week", "Save $5,000", "Read 12 Books This Year", "Launch My Portfolio Site").
-- be realistically achievable within 12 months by a busy person, and sized to the gap between where they are and want to be.
-- be a Title Case short goal title, no leading "I want to".
-- NEVER be vague (never "Get healthier", "Find balance", "Be more disciplined", "Grow spiritually").
+For EACH area, write exactly the requested number of goal titles for ${firstName}. Each goal MUST:
+- be an OUTCOME or identity to REACH — never a recurring task, habit, frequency, or quota. If the natural phrasing is an action they'd repeat ("Run 3 times a week", "Read 12 books", "Meditate daily"), elevate it to the outcome that action SERVES ("Become a Confident Distance Runner", "Grow Into a Lifelong Reader", "Cultivate Lasting Inner Peace"). The repeated action becomes a daily TASK and the numbers become CHECKPOINTS — never the goal itself.
+- be something they could picture having achieved, sized to the gap between where they are and want to be, and realistically reachable within ~12 months.
+- be a Title Case short goal title (2–6 words), no leading "I want to".
+- NEVER be an empty cliché ("Find balance", "Be more disciplined", "Grow spiritually").
 
 Coaching tone: ${TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.default}
 

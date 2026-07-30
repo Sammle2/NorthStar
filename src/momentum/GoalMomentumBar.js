@@ -30,9 +30,9 @@ export default function GoalMomentumBar({ goal, width = '100%' }) {
   const mPct = pct(m) == null ? 0 : pct(m)
   const color = momentumColor(m == null ? 0 : m)
   const label = cur
-    ? `MOMENTUM · STONE ${curIdx + 1}/${stones.length}`
+    ? `MOMENTUM · CHECKPOINT ${curIdx + 1}/${stones.length}`
     : stones.length
-      ? 'MOMENTUM · ALL STONES DONE'
+      ? 'MOMENTUM · ALL CHECKPOINTS DONE'
       : 'MOMENTUM'
 
   return (

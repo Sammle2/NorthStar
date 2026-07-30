@@ -79,12 +79,14 @@ const buildIntakeContext = (ratings = {}, focus = {}, pursuing = '') => {
 
 // Local starter goals per category — used only when the AI proposal is
 // unavailable (offline), so the flow always has editable, SMART-shaped titles.
+// Each is an OUTCOME/identity to reach — never a recurring task or quota (those
+// belong to the goal's tasks and checkpoints, not the goal title itself).
 const STARTER_TITLES = {
-  mind: ['Read 12 Books This Year', 'Build a Daily 30-Minute Focus Block', 'Learn One New Skill in 90 Days'],
-  body: ['Work Out 3 Times a Week', 'Sleep 7+ Hours Every Night', 'Run a 5K in 12 Weeks'],
-  spirit: ['Meditate 10 Minutes Daily for 90 Days', 'Journal Every Morning for a Month', 'Write Down My Core Values'],
-  work: ['Grow My Income by 20% This Year', 'Save a 3-Month Emergency Fund', 'Ship One Portfolio Project in 90 Days'],
-  relationships: ['Have One Real Catch-Up Every Week', 'Plan a Monthly Date or Family Night', 'Reconnect With 3 Friends This Quarter'],
+  mind: ['Become a Sharp, Focused Thinker', 'Grow Into a Lifelong Learner', 'Master a Skill That Matters to Me'],
+  body: ['Build a Strong, Energized Body', 'Become Fit and Full of Energy', 'Feel Healthy and Rested Every Day'],
+  spirit: ['Cultivate Lasting Inner Peace', 'Live with Calm and Clarity', 'Feel Grounded in My Purpose'],
+  work: ['Build a Career I’m Proud Of', 'Reach Real Financial Freedom', 'Become Known for Work That Matters'],
+  relationships: ['Build Deep, Lasting Relationships', 'Become the Friend People Rely On', 'Grow Closer to the People I Love'],
 }
 const localGoalTitle = (cat, i) => (STARTER_TITLES[cat] || STARTER_TITLES.mind)[i % 3]
 
