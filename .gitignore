@@ -31,3 +31,10 @@ yarn-error.*
 
 # macOS
 .DS_Store
+
+# Xcode user-specific state (machine-local, not shared)
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/Pods/
+ios/build/
+ios/.xcode.env.local
