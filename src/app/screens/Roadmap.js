@@ -169,8 +169,21 @@ export default function Roadmap({ profile, onUpdate, onRedoGoal, onOpenSprints }
     if (!title) title = STARTER_TITLES[key] || `New ${CATEGORY_LABELS[key]} Goal`
     const newGoal = buildGoal(title, '', `goal-${Date.now().toString(36)}`, key)
     pendingGoalRef.current = newGoal.id // survive the create→setView render race
-    onUpdate({ ...profile, goals: [...goals, newGoal] })
+    // Functional updater: this write lands AFTER the AI wait, so it must merge
+    // onto the CURRENT profile (a stone toggled or goal added meanwhile must
+    // survive) — and the cap is re-checked against those current goals too.
+    let blocked = null
+    onUpdate((prof) => {
+      const recheck = canAddGoal(prof.goals, key)
+      if (!recheck.ok) { blocked = recheck.reason; return prof }
+      return { ...prof, goals: [...(prof.goals || []), newGoal] }
+    })
     setCreating(null)
+    if (blocked) {
+      pendingGoalRef.current = null
+      setSelected({ horizon: CATEGORY_LABELS[key], title: 'Not just yet', detail: blocked, lit: false, accent: CATEGORY_COLORS[key] })
+      return
+    }
     setView(newGoal.id) // straight into the new goal's road
   }
   const dreamPct = useMemo(
