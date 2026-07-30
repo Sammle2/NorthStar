@@ -5,6 +5,7 @@ import { ArrowLeft, Mail, Eye, EyeOff, LogIn } from 'lucide-react-native'
 import { C, F } from '../tokens'
 import { signUpWithEmail } from '../../services/supabaseAuth'
 import { isUsernameAvailable } from '../../services/socialService'
+import TermsAgreeRow from '../components/TermsAgreeRow'
 
 const cleanUsername = (v) => (v || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20)
 
@@ -20,6 +21,7 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
   const [signedUpUser, setSignedUpUser] = useState(null)
+  const [agreed, setAgreed] = useState(false)
 
   const handleSignUp = async () => {
     if (!name.trim() || !username.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
@@ -39,6 +41,11 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
 
     if (password.length < 8) {
       setError('Password must be at least 8 characters')
+      return
+    }
+
+    if (!agreed) {
+      setError('Please agree to the Terms & Conditions and Privacy Policy to create an account')
       return
     }
 
@@ -213,9 +220,7 @@ export default function SignUp({ onSignUpSuccess, onSwitchToSignIn }) {
             </View>
           </View>
 
-          <Text style={{ fontFamily: F.body, fontSize: 11, color: C.faint, marginBottom: 16, lineHeight: 16 }}>
-            By creating an account, you agree to our Terms &amp; Conditions and Privacy Policy (in Settings), and confirm you’re at least 13.
-          </Text>
+          <TermsAgreeRow agreed={agreed} onToggle={() => { setAgreed(!agreed); setError(null) }} style={{ marginBottom: 16 }} />
 
           {/* Sign Up Button */}
           <Pressable onPress={handleSignUp} disabled={loading} style={{ marginBottom: 32 }}>

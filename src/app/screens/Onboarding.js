@@ -15,6 +15,7 @@ import { C, F } from '../tokens'
 import CoachAvatar from '../components/CoachAvatar'
 import GlowProgress from '../components/GlowProgress'
 import { MessageBubble, TypingDots } from '../components/ChatBits'
+import TermsAgreeRow from '../components/TermsAgreeRow'
 import {
   COACH_MESSAGES,
   actionableTitle,
@@ -542,7 +543,8 @@ function IntakeForm({ onSubmit, askAccount }) {
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  const accountReady = !askAccount || (username.trim().length >= 3 && looksLikeEmail(email) && password.length >= 8)
+  const [agreed, setAgreed] = useState(false)
+  const accountReady = !askAccount || (username.trim().length >= 3 && looksLikeEmail(email) && password.length >= 8 && agreed)
   const ready = name.trim() && age.trim() && gender && accountReady && !busy
 
   const submit = async () => {
@@ -625,9 +627,7 @@ function IntakeForm({ onSubmit, askAccount }) {
               </Pressable>
             </View>
           </Field>
-          <Text style={{ fontFamily: F.body, fontSize: 11, color: C.faint, marginTop: 14, lineHeight: 16 }}>
-            By continuing, you agree to our Terms &amp; Conditions and Privacy Policy (in Settings), and confirm you’re at least 13.
-          </Text>
+          <TermsAgreeRow agreed={agreed} onToggle={() => setAgreed(!agreed)} style={{ marginTop: 14 }} />
         </>
       )}
       {error && (

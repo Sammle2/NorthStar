@@ -80,6 +80,23 @@ export default function DMs({ profile, onClose, onOpenAddFriends, initialUserId 
 
   const titleOf = (c) => c.isGroup ? (c.title || 'Group') : (c.others[0]?.full_name || c.others[0]?.username || 'Conversation')
 
+  // "2:14 PM" today, "Yesterday 2:14 PM", "Mon 2:14 PM" within a week, else "Jul 12, 2:14 PM" (+ year if not this year).
+  const dayKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+  const stampLabel = (iso, { timeOnly } = {}) => {
+    const d = new Date(iso)
+    if (isNaN(d)) return ''
+    const now = new Date()
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    if (dayKey(d) === dayKey(now)) return time
+    const yest = new Date(now); yest.setDate(now.getDate() - 1)
+    if (dayKey(d) === dayKey(yest)) return timeOnly ? 'Yesterday' : `Yesterday ${time}`
+    const days = (now - d) / 86400000
+    if (days < 6) { const wd = d.toLocaleDateString([], { weekday: 'short' }); return timeOnly ? wd : `${wd} ${time}` }
+    const date = d.toLocaleDateString([], { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })
+    return timeOnly ? date : `${date}, ${time}`
+  }
+  const STAMP_GAP_MS = 30 * 60 * 1000
+
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: C.bg, zIndex: 240 }}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
@@ -118,7 +135,10 @@ export default function DMs({ profile, onClose, onOpenAddFriends, initialUserId 
                   ? <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: C.violetFill, borderWidth: 1, borderColor: C.lineStrong }}><Users size={20} color={C.violet} strokeWidth={2} /></View>
                   : <Avatar url={c.others[0]?.avatar_url} name={c.others[0]?.full_name} username={c.others[0]?.username} size={48} />}
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: F.semibold, fontSize: 15, color: C.ink }} numberOfLines={1}>{titleOf(c)}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={{ flex: 1, fontFamily: F.semibold, fontSize: 15, color: C.ink }} numberOfLines={1}>{titleOf(c)}</Text>
+                    {c.lastAt ? <Text style={{ fontFamily: F.body, fontSize: 11.5, color: C.faint2 }}>{stampLabel(c.lastAt, { timeOnly: true })}</Text> : null}
+                  </View>
                   <Text style={{ fontFamily: F.body, fontSize: 12.5, color: C.faint, marginTop: 2 }} numberOfLines={1}>{c.lastMessage || 'No messages yet'}</Text>
                 </View>
               </Pressable>
@@ -129,12 +149,19 @@ export default function DMs({ profile, onClose, onOpenAddFriends, initialUserId 
         {view === 'thread' && active && (
           <View style={{ flex: 1 }}>
             <ScrollView contentContainerStyle={{ padding: 16, maxWidth: 600, width: '100%', alignSelf: 'center', flexGrow: 1, justifyContent: 'flex-end' }}>
-              {messages.map((m) => {
+              {messages.map((m, i) => {
                 const mine = m.sender_id === myId
+                const prev = messages[i - 1]
+                const showStamp = !prev || (new Date(m.created_at) - new Date(prev.created_at)) > STAMP_GAP_MS
                 return (
-                  <View key={m.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '80%', marginVertical: 4, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: mine ? C.amber : C.card, borderWidth: mine ? 0 : 1, borderColor: C.lineMid }}>
-                    <Text style={{ fontFamily: F.body, fontSize: 14.5, color: mine ? C.amberInk : C.ink, lineHeight: 20 }}>{m.content}</Text>
-                  </View>
+                  <React.Fragment key={m.id}>
+                    {showStamp && (
+                      <Text style={{ fontFamily: F.body, fontSize: 11, color: C.faint2, textAlign: 'center', marginTop: 14, marginBottom: 6, letterSpacing: 0.4 }}>{stampLabel(m.created_at)}</Text>
+                    )}
+                    <View style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '80%', marginVertical: 4, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: mine ? C.amber : C.card, borderWidth: mine ? 0 : 1, borderColor: C.lineMid }}>
+                      <Text style={{ fontFamily: F.body, fontSize: 14.5, color: mine ? C.amberInk : C.ink, lineHeight: 20 }}>{m.content}</Text>
+                    </View>
+                  </React.Fragment>
                 )
               })}
               {messages.length === 0 && <Text style={{ fontFamily: F.body, fontSize: 13, color: C.faint, textAlign: 'center', paddingVertical: 24 }}>Say hi 👋</Text>}
