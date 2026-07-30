@@ -203,7 +203,8 @@ export function CircleDetail({ profile, circle, onClose, onMessageUser }) {
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40 }}>
+        {/* paddingBottom clears the absolute bottom nav so Leave circle scrolls fully into view */}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 140 }}>
           {/* Share code */}
           {circle.join_code ? (
             <Pressable onPress={() => copyText(circle.join_code)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16, backgroundColor: C.violetFill07, borderWidth: 1, borderColor: C.lineMid }}>
