@@ -112,6 +112,15 @@ export function buildR2({ gap = 'stretch', levers = [], stones = [], experience 
   return r2
 }
 
+// Build a fully-adopted mechanism (snapshot included) WITHOUT touching a goal —
+// for callers that attach r2 before the profile even exists (onboarding builds
+// the first day's stones/tasks while the generating screen is still up).
+export function buildAdoptedR2(accepted) {
+  const r2 = buildR2(accepted)
+  r2.snapshot = computeSnapshot(r2)
+  return r2
+}
+
 // Adopt (or replace) the mechanism on a goal. Distinct from anything Max's
 // GoalEditor does — it only ever writes goal.r2 + a derived goal.progress.
 export function adoptMechanism(onUpdate, goalId, accepted) {

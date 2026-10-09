@@ -22,11 +22,15 @@ import {
   buildGoal,
   capName,
   generateDreamStory,
+  generateNonNegotiables,
   normalizeAiGoal,
   validateGoal,
 } from '../aiEngine'
+import { todayKey } from '../store'
 import { CATEGORIES, normalizeCategory } from '../mockData'
 import { generateDreamLifeStory, generateGoalsForFocus, generateRoadmap } from '../../services/aiService'
+import { decomposeIntoStones, generateStoneTasks } from '../../momentum/generate'
+import { buildAdoptedR2 } from '../../momentum/store'
 
 const TONES = [
   { id: 'tough', label: 'Tough Love', desc: 'No BS, high expectations', emoji: '💪' },
@@ -288,18 +292,36 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
     const goals = await Promise.all(
       commitments.map(async (r, i) => {
         const id = `goal-${i + 1}`
+        let goal
         try {
           const ai = await generateRoadmap({ name, rawGoal: r.title, extra, tone, situation })
           const built = normalizeAiGoal(ai, r.title, extra, id)
           // Keep the title the user agreed to and FORCE the category they chose —
           // the goal belongs to the category-slot it was proposed in.
-          return { ...built, title: r.title, category: r.category }
+          goal = { ...built, title: r.title, category: r.category }
         } catch (e) {
           console.warn('[Onboarding] roadmap failed for goal', i + 1, e?.message)
-          return buildGoal(r.title, extra, id, r.category)
-        } finally {
-          bumpTarget() // this goal's roadmap done
+          goal = buildGoal(r.title, extra, id, r.category)
         }
+        // Build the momentum mechanism (stones + the first stone's daily tasks)
+        // RIGHT HERE, while the generating screen is still up — so the Today
+        // list is already final the first time the user sees it, instead of
+        // swapping from generic non-negotiables to momentum tasks a few seconds
+        // after they land. App.js's background auto-adopt stays as the fallback
+        // for goals this fails on (and for legacy accounts).
+        try {
+          const context = situation || extra || ''
+          const stones = await decomposeIntoStones({ title: goal.title, category: goal.category, situation: context, currentState: context })
+          if (stones.length) {
+            const tasks = await generateStoneTasks({ dreamTitle: goal.title, category: goal.category, stone: stones[0] })
+            const stonesWithTasks = stones.map((s, j) => ({ ...s, tasks: j === 0 ? tasks : [] }))
+            goal = { ...goal, r2: buildAdoptedR2({ gap: 'stretch', levers: [], stones: stonesWithTasks, currentState: context }) }
+          }
+        } catch (e) {
+          console.warn('[Onboarding] momentum setup failed for goal', i + 1, e?.message)
+        }
+        bumpTarget() // this goal fully built (roadmap + first-day tasks)
+        return goal
       }),
     )
 
@@ -328,6 +350,12 @@ export default function Onboarding({ onComplete, onClaimAccount, hasAccount, onB
       joinedDate: now,
       lastLongTermReview: now,
     }
+
+    // Build day one's tasks HERE, while the generating screen is still up, from
+    // the goals that were just created — so the Today list is already final the
+    // first time the user opens it, instead of popping in (and reshuffling) on
+    // the Dashboard's first mount.
+    profile.nonNeg = { [todayKey()]: generateNonNegotiables(profile) }
 
     // Everything is ready — fill the bar to 100% and let it visibly land (the
     // bar eases over ~1.2s) before the reveal takes over.
@@ -570,10 +598,10 @@ function IntakeForm({ onSubmit, askAccount }) {
     <View style={cardStyle}>
       <Text style={cardKicker}>QUICK INTAKE</Text>
       <Field label="Your name">
-        <TextInput value={name} onChangeText={setName} placeholder="e.g. Sammy" placeholderTextColor={C.faint2} autoComplete="off" autoCorrect={false} importantForAutofill="no" style={fieldInput} />
+        <TextInput value={name} onChangeText={setName} autoComplete="off" autoCorrect={false} importantForAutofill="no" style={fieldInput} />
       </Field>
       <Field label="Age">
-        <TextInput value={age} onChangeText={setAge} placeholder="e.g. 27" placeholderTextColor={C.faint2} keyboardType="number-pad" autoComplete="off" importantForAutofill="no" style={fieldInput} />
+        <TextInput value={age} onChangeText={setAge} keyboardType="number-pad" autoComplete="off" importantForAutofill="no" style={fieldInput} />
       </Field>
       <Field label="Gender">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -590,8 +618,6 @@ function IntakeForm({ onSubmit, askAccount }) {
               <TextInput
                 value={username}
                 onChangeText={(v) => setUsername(cleanUsername(v))}
-                placeholder="e.g. sammy_dreams"
-                placeholderTextColor={C.faint2}
                 autoCapitalize="none"
                 autoComplete="off"
                 autoCorrect={false}
@@ -686,10 +712,12 @@ function CategoryRatings({ onSubmit }) {
       <View style={{ gap: 4, marginTop: 12 }}>
         {CATEGORIES.map((c, i) => (
           <View key={c.key}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.color }} />
-              <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.ink }}>{c.label}</Text>
-              <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint, flex: 1 }} numberOfLines={1}>· {c.blurb}</Text>
+            <View style={{ marginBottom: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.color }} />
+                <Text style={{ fontFamily: F.semibold, fontSize: 14, color: C.ink }}>{c.label}</Text>
+              </View>
+              <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint, lineHeight: 15, marginTop: 2, marginLeft: 16 }}>{c.blurb}</Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Text style={sliderLbl}>Now</Text><Text style={[sliderLbl, { color: C.dim, fontFamily: F.bold }]}>{vals[c.key].now}</Text>
@@ -735,7 +763,7 @@ function CategoryPriorities({ onSubmit }) {
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: c.color }} />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: F.semibold, fontSize: 13.5, color: C.ink }}>{c.label}</Text>
-                <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint }} numberOfLines={1}>{c.blurb}</Text>
+                <Text style={{ fontFamily: F.body, fontSize: 10.5, color: C.faint, lineHeight: 15 }}>{c.blurb}</Text>
               </View>
               <Pressable onPress={() => dec(c.key)} disabled={counts[c.key] === 0} hitSlop={6} style={stepBtn(counts[c.key] === 0)}><Text style={stepTxt}>−</Text></Pressable>
               <Text style={{ width: 20, textAlign: 'center', fontFamily: F.bold, fontSize: 15, color: on ? c.color : C.faint }}>{counts[c.key]}</Text>
